@@ -1,0 +1,85 @@
+{
+  "name": "live-share-vscode",
+  "displayName": "Live Share (live-share.nvim compatible)",
+  "description": "Real-time collaborative editing compatible with azratul/live-share.nvim. Join or host sessions with Neovim users — no Microsoft account required.",
+  "version": "0.1.0",
+  "publisher": "CHANGE_ME",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/darkerthanblack2000/open-pair"
+  },
+  "bugs": {
+    "url": "https://github.com/darkerthanblack2000/open-pair/issues"
+  },
+  "homepage": "https://github.com/darkerthanblack2000/open-pair#readme",
+  "icon": "icon.png",
+  "galleryBanner": {
+    "color": "#1e1e2e",
+    "theme": "dark"
+  },
+  "keywords": [
+    "live-share",
+    "collaboration",
+    "neovim",
+    "co-editing",
+    "pair-programming",
+    "real-time"
+  ],
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "liveshare.join",
+        "title": "Live Share: Join Session"
+      },
+      {
+        "command": "liveshare.startServer",
+        "title": "Live Share: Start Hosting"
+      },
+      {
+        "command": "liveshare.stop",
+        "title": "Live Share: Stop Session"
+      },
+      {
+        "command": "liveshare.follow",
+        "title": "Live Share: Toggle Follow Mode"
+      },
+      {
+        "command": "liveshare.openWorkspace",
+        "title": "Live Share: Open Workspace File"
+      },
+      {
+        "command": "liveshare.showPeers",
+        "title": "Live Share: Show Peers"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run bundle",
+    "bundle": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --platform=node --target=node18 --minify",
+    "compile": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --platform=node --target=node18 --sourcemap",
+    "watch": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --platform=node --target=node18 --sourcemap --watch",
+    "typecheck": "tsc --noEmit",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@types/ws": "^8.5.10",
+    "@vscode/vsce": "^3.7.1",
+    "esbuild": "^0.25.12",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}

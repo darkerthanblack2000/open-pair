@@ -11,11 +11,14 @@
  */
 
 import * as vscode from 'vscode'
-import { encode, decode, LiveShareMessage } from './protocol'
+import { encode, decode, LiveShareMessage, PROTOCOL_VERSION } from './protocol'
 import { createWsTransport, createTcpTransport, Transport } from './transport'
 
 export type SessionRole = 'rw' | 'ro'
 export type MessageHandler = (msg: LiveShareMessage) => void
+
+// Capabilities this client implements.
+const SUPPORTED_CAPS = new Set(['workspace', 'terminal', 'cursor', 'follow'])
 
 export interface ParsedUrl {
   host: string
@@ -58,9 +61,11 @@ const RECONNECT_DELAYS = [500, 1000, 2000]
 
 export class Session {
   // Filled after hello
-  sid    : string | undefined
-  peerId : number | undefined
-  role   : SessionRole | undefined
+  sid      : string | undefined
+  peerId   : number | undefined
+  role     : SessionRole | undefined
+  hostRequiredCaps : string[] = []
+  hostOptionalCaps : string[] = []
 
   private transport       : Transport | undefined
   private key             : Buffer | undefined
@@ -78,6 +83,12 @@ export class Session {
   }
 
   connect(parsed: ParsedUrl, displayName: string): void {
+    if (!parsed.key) {
+      vscode.window.showErrorMessage(
+        'Live Share: no encryption key found in URL (#key=…) — refusing to connect without encryption'
+      )
+      return
+    }
     this.parsed       = parsed
     this.displayName  = displayName
     this.key          = parsed.key
@@ -102,17 +113,41 @@ export class Session {
       if (!msg) { return }
 
       if (msg.t === 'hello') {
-        this.sid    = msg['sid']    as string
-        this.peerId = msg['peer_id'] as number
-        this.role   = (msg['role'] as SessionRole) ?? 'rw'
+        const remoteVersion = msg['protocol_version'] as number | undefined
+        if (remoteVersion !== undefined && remoteVersion !== PROTOCOL_VERSION) {
+          vscode.window.showWarningMessage(
+            `Live Share: protocol version mismatch (host=${remoteVersion}, ours=${PROTOCOL_VERSION}) — behaviour may be undefined`
+          )
+        }
+        const requiredCaps  = (msg['required_caps'] as string[] | undefined) ?? []
+        const unsupported   = requiredCaps.filter(c => !SUPPORTED_CAPS.has(c))
+        if (unsupported.length > 0) {
+          vscode.window.showErrorMessage(
+            `Live Share: host requires unsupported capabilities: ${unsupported.join(', ')} — disconnecting`
+          )
+          this.dispose()
+          return
+        }
+        this.sid              = msg['sid']    as string
+        this.peerId           = msg['peer_id'] as number
+        this.role             = (msg['role'] as SessionRole) ?? 'rw'
+        this.hostRequiredCaps = requiredCaps
+        this.hostOptionalCaps = (msg['optional_caps'] as string[] | undefined) ?? []
         this._connected = true
-        this.send({ t: 'hello_ack', name: this.displayName })
+        this.send({ t: 'hello_ack', name: this.displayName, caps: [...SUPPORTED_CAPS] })
       }
 
       if (msg.t === 'rejected') {
         const reason = (msg['reason'] as string | undefined) ?? 'no reason given'
         vscode.window.showErrorMessage(`Live Share: connection rejected — ${reason}`)
         this.dispose()
+        return
+      }
+
+      if (msg.t === 'error') {
+        const code    = (msg['code']    as string | undefined) ?? 'unknown'
+        const message = (msg['message'] as string | undefined) ?? ''
+        vscode.window.showErrorMessage(`Live Share: host error [${code}] ${message}`)
         return
       }
 
@@ -163,6 +198,8 @@ export class Session {
     this.sid        = undefined
     this.peerId     = undefined
     this.role       = undefined
+    this.hostRequiredCaps = []
+    this.hostOptionalCaps = []
     this.handlers   = []
   }
 }

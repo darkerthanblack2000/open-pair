@@ -18,7 +18,7 @@ import * as net    from 'node:net'
 import * as crypto from 'node:crypto'
 import * as os     from 'node:os'
 import * as vscode from 'vscode'
-import { encode, decode, LiveShareMessage } from './protocol'
+import { encode, decode, LiveShareMessage, PROTOCOL_VERSION } from './protocol'
 import { PeerTracker } from './peers'
 
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
@@ -433,11 +433,14 @@ export class Host {
 
     // Send hello first so the guest knows the session is accepted
     this.send(peerId, {
-      t        : 'hello',
-      sid      : this.sid,
-      peer_id  : peerId,
-      host_name: this.displayName,
+      t                : 'hello',
+      protocol_version : PROTOCOL_VERSION,
+      sid              : this.sid,
+      peer_id          : peerId,
+      host_name        : this.displayName,
       role,
+      required_caps    : ['workspace'],
+      optional_caps    : ['terminal', 'cursor', 'follow'],
     })
 
     // Scan all workspace files (async) and send the full list
@@ -484,6 +487,8 @@ export class Host {
         const name = (msg['name'] as string | undefined) || `guest ${fromPeer}`
         client.name = name
         this.peers.upsert(fromPeer, { name, role: client.role })
+        const caps = msg['caps'] as string[] | undefined
+        console.log(`live-share: ${name} caps: ${caps?.join(', ') ?? 'none'}`)
         vscode.window.showInformationMessage(`Live Share: ${name} joined [${client.role}]`)
         // Broadcast updated peer info to all other guests
         this.broadcast({ t: 'peers_snapshot', peers: [{ peer_id: fromPeer, name }] }, fromPeer)
@@ -517,11 +522,9 @@ export class Host {
       }
 
       case 'file_request': {
-        const path = msg['path'] as string
-        const doc  = vscode.workspace.textDocuments.find(d => getRelPath(d.uri) === path)
-        if (doc) {
-          this.send(fromPeer, { t: 'file_response', path, lines: docToLines(doc), readonly: false })
-        }
+        const path  = msg['path']   as string
+        const reqId = msg['req_id'] as number | undefined
+        void this.respondToFileRequest(fromPeer, path, reqId)
         break
       }
 
@@ -535,6 +538,41 @@ export class Host {
         break
       }
     }
+  }
+
+  // ── Respond to file request from guest ───────────────────────────────────
+
+  private async respondToFileRequest(peerId: number, path: string, reqId: number | undefined): Promise<void> {
+    // First try an already-open document (authoritative in-memory state)
+    const doc = vscode.workspace.textDocuments.find(d => getRelPath(d.uri) === path)
+    if (doc) {
+      this.send(peerId, { t: 'file_response', path, lines: docToLines(doc), readonly: false, req_id: reqId })
+      return
+    }
+
+    // Fall back to reading from disk
+    const wsFolder = vscode.workspace.workspaceFolders?.[0]
+    if (wsFolder) {
+      const fileUri = vscode.Uri.joinPath(wsFolder.uri, path)
+      try {
+        const bytes = await vscode.workspace.fs.readFile(fileUri)
+        const text  = Buffer.from(bytes).toString('utf8')
+        const lines = text.split('\n')
+        // Remove trailing empty element produced by a final newline
+        if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
+        this.send(peerId, { t: 'file_response', path, lines, readonly: false, req_id: reqId })
+        return
+      } catch {
+        // file not found or unreadable — fall through to error response
+      }
+    }
+
+    this.send(peerId, {
+      t      : 'error',
+      code   : 'file_not_found',
+      message: `file not found in workspace: ${path}`,
+      req_id : reqId,
+    })
   }
 
   // ── Apply guest patch to VS Code document ─────────────────────────────────

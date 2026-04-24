@@ -12,7 +12,7 @@
  */
 
 import * as vscode from 'vscode'
-import { Session, parseShareUrl } from './session'
+import { Session, parseShareUrl, SessionLogger } from './session'
 import { DocumentRegistry, SCHEME } from './documents'
 import { CursorManager } from './cursors'
 import { PeerTracker } from './peers'
@@ -144,6 +144,20 @@ async function cmdJoin(): Promise<void> {
   docs    = new DocumentRegistry()
   cursors = new CursorManager(docs)
   session = new Session()
+
+  // Wire the session logger to the debug Output Channel so transport
+  // events (open, message, close, error) are always visible without
+  // needing to open VS Code Developer Tools.
+  if (!debugChannel) {
+    debugChannel = vscode.window.createOutputChannel('Live Share — Debug Info')
+    extCtx.subscriptions.push(debugChannel)
+  }
+  debugChannel.clear()
+  const sessionLogger: SessionLogger = (msg) => {
+    debugChannel!.appendLine(`[${new Date().toISOString()}] ${msg}`)
+  }
+  session.setLogger(sessionLogger)
+  sessionLogger(`join started — transport=${parsed.mode} host=${parsed.host}:${parsed.port} key=${parsed.key ? 'present' : 'MISSING'}`)
 
   const providerReg = vscode.workspace.registerFileSystemProvider(SCHEME, docs, {
     isCaseSensitive: true,

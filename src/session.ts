@@ -62,6 +62,8 @@ export function parseShareUrl(raw: string): ParsedUrl {
   return { host: clean, port: 80, key, mode: 'ws' }
 }
 
+export type SessionLogger = (msg: string) => void
+
 export class Session {
   // Filled after hello
   sid      : string | undefined
@@ -77,9 +79,14 @@ export class Session {
   private intentionalClose = false
   private parsed           : ParsedUrl | undefined
   private displayName      : string = ''
+  private log              : SessionLogger = () => {}
 
   get connected(): boolean { return this._connected }
   get transportMode(): 'ws' | 'tcp' | 'punch' | undefined { return this.parsed?.mode }
+
+  setLogger(logger: SessionLogger): void {
+    this.log = logger
+  }
 
   onMessage(handler: MessageHandler): void {
     this.handlers.push(handler)
@@ -113,13 +120,18 @@ export class Session {
     this.transport = t
 
     t.on('open', () => {
+      this.log(`transport open (${this.parsed?.mode ?? '?'}) → sending connect`)
       // §8: send connect as first protocol message after transport is up
       this.send({ t: 'connect' })
     })
 
     t.on('message', (payload: Buffer) => {
       const msg = decode(payload, this.key)
-      if (!msg) { return }
+      if (!msg) {
+        this.log(`message received (${payload.length} bytes) — decryption failed (wrong key or corrupt frame)`)
+        return
+      }
+      this.log(`message received: t=${msg.t}`)
 
       if (msg.t === 'hello') {
         const remoteVersion = msg['protocol_version'] as number | undefined
@@ -144,6 +156,7 @@ export class Session {
         this.hostOptionalCaps = (msg['optional_caps'] as string[] | undefined) ?? []
         this._connected = true
         this.send({ t: 'hello_ack', name: this.displayName, caps: [...SUPPORTED_CAPS] })
+        this.log(`hello OK — peer_id=${this.peerId} sid=${this.sid} role=${this.role}`)
       }
 
       if (msg.t === 'rejected') {
@@ -163,18 +176,24 @@ export class Session {
       for (const h of this.handlers) { h(msg) }
     })
 
-    t.on('close', () => {
+    t.on('close', (code?: number, reason?: string) => {
+      const detail = code !== undefined ? ` (code ${code}${reason ? ': ' + reason : ''})` : ''
+      this.log(`transport closed${detail}`)
       this._connected = false
       this.transport  = undefined
 
       // §7.3: session URLs are single-use — do not auto-reconnect after disconnect
       if (!this.intentionalClose) {
-        vscode.window.showErrorMessage('Live Share: disconnected — rejoin manually with a new URL')
+        vscode.window.showErrorMessage(
+          `Live Share: disconnected${detail} — rejoin manually with a new URL`,
+          'Dismiss'
+        )
         for (const h of this.handlers) { h({ t: 'bye', peer: 0 }) }
       }
     })
 
     t.on('error', (err: Error) => {
+      this.log(`transport error — ${err.message}`)
       vscode.window.showErrorMessage(`Live Share: connection error — ${err.message}`)
       this._connected = false
     })

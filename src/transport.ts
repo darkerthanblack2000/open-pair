@@ -31,7 +31,16 @@ export function createWsTransport(host: string, port: number): Transport {
 
   ws.binaryType = 'nodebuffer'
 
+  // Send WS ping frames every 25s to prevent tunnel idle-timeout during
+  // the host approval window (typical tunnel timeout: 30-60s).
+  let pingTimer: ReturnType<typeof setInterval> | undefined
+
   ws.on('open', () => {
+    pingTimer = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.ping()
+      }
+    }, 25000)
     emitter.emit('open')
   })
 
@@ -39,8 +48,9 @@ export function createWsTransport(host: string, port: number): Transport {
     emitter.emit('message', data)
   })
 
-  ws.on('close', () => {
-    emitter.emit('close')
+  ws.on('close', (code: number, reason: Buffer) => {
+    if (pingTimer) { clearInterval(pingTimer); pingTimer = undefined }
+    emitter.emit('close', code, reason.toString())
   })
 
   ws.on('error', (err: Error) => {
@@ -54,6 +64,7 @@ export function createWsTransport(host: string, port: number): Transport {
   }
 
   emitter.close = () => {
+    if (pingTimer) { clearInterval(pingTimer); pingTimer = undefined }
     if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
       ws.close()
     }

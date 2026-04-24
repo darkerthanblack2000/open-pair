@@ -24,13 +24,18 @@ export interface ParsedUrl {
   host: string
   port: number
   key: Buffer | undefined
-  mode: 'ws' | 'tcp'
+  mode: 'ws' | 'tcp' | 'punch'
 }
 
 export function parseShareUrl(raw: string): ParsedUrl {
   const keyMatch = raw.match(/#key=([A-Za-z0-9_-]+)/)
   const key      = keyMatch ? Buffer.from(keyMatch[1], 'base64url') : undefined
   const url      = raw.replace(/#.*$/, '').trim()
+
+  // §1.3: Punch P2P UDP transport — signaling flow not supported yet
+  if (url.startsWith('punch+')) {
+    return { host: '', port: 0, key, mode: 'punch' }
+  }
 
   if (url.startsWith('tcp://')) {
     const rest  = url.slice(6)
@@ -57,8 +62,6 @@ export function parseShareUrl(raw: string): ParsedUrl {
   return { host: clean, port: 80, key, mode: 'ws' }
 }
 
-const RECONNECT_DELAYS = [500, 1000, 2000]
-
 export class Session {
   // Filled after hello
   sid      : string | undefined
@@ -67,14 +70,13 @@ export class Session {
   hostRequiredCaps : string[] = []
   hostOptionalCaps : string[] = []
 
-  private transport       : Transport | undefined
-  private key             : Buffer | undefined
-  private handlers        : MessageHandler[] = []
-  private _connected      = false
+  private transport        : Transport | undefined
+  private key              : Buffer | undefined
+  private handlers         : MessageHandler[] = []
+  private _connected       = false
   private intentionalClose = false
-  private reconnectAttempt = 0
-  private parsed          : ParsedUrl | undefined
-  private displayName     : string = ''
+  private parsed           : ParsedUrl | undefined
+  private displayName      : string = ''
 
   get connected(): boolean { return this._connected }
 
@@ -83,17 +85,22 @@ export class Session {
   }
 
   connect(parsed: ParsedUrl, displayName: string): void {
+    if (parsed.mode === 'punch') {
+      vscode.window.showErrorMessage(
+        'Live Share: Punch (P2P UDP) transport is not supported — use a WS or TCP URL'
+      )
+      return
+    }
     if (!parsed.key) {
       vscode.window.showErrorMessage(
         'Live Share: no encryption key found in URL (#key=…) — refusing to connect without encryption'
       )
       return
     }
-    this.parsed       = parsed
-    this.displayName  = displayName
-    this.key          = parsed.key
-    this.intentionalClose  = false
-    this.reconnectAttempt  = 0
+    this.parsed           = parsed
+    this.displayName      = displayName
+    this.key              = parsed.key
+    this.intentionalClose = false
     this.doConnect()
   }
 
@@ -105,7 +112,8 @@ export class Session {
     this.transport = t
 
     t.on('open', () => {
-      this.reconnectAttempt = 0
+      // §8: send connect as first protocol message after transport is up
+      this.send({ t: 'connect' })
     })
 
     t.on('message', (payload: Buffer) => {
@@ -158,15 +166,9 @@ export class Session {
       this._connected = false
       this.transport  = undefined
 
-      if (!this.intentionalClose && this.reconnectAttempt < RECONNECT_DELAYS.length) {
-        const delay = RECONNECT_DELAYS[this.reconnectAttempt]
-        this.reconnectAttempt++
-        vscode.window.showWarningMessage(
-          `Live Share: disconnected — reconnecting in ${delay / 1000}s (attempt ${this.reconnectAttempt}/${RECONNECT_DELAYS.length})…`
-        )
-        setTimeout(() => { if (!this.intentionalClose) this.doConnect() }, delay)
-      } else if (!this.intentionalClose) {
-        vscode.window.showErrorMessage('Live Share: disconnected — could not reconnect')
+      // §7.3: session URLs are single-use — do not auto-reconnect after disconnect
+      if (!this.intentionalClose) {
+        vscode.window.showErrorMessage('Live Share: disconnected — rejoin manually with a new URL')
         for (const h of this.handlers) { h({ t: 'bye', peer: 0 }) }
       }
     })

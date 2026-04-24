@@ -391,7 +391,9 @@ async function handleGuestMessage(msg: LiveShareMessage): Promise<void> {
       const lnum  = msg['lnum']  as number
       const count = msg['count'] as number
       const lines = (msg['lines'] as string[] | undefined) ?? []
-      await docs.applyPatch(path, lnum, count, lines)
+      // §7.2: out-of-range → request full resync from host
+      const ok = await docs.applyPatch(path, lnum, count, lines)
+      if (!ok) { session.send({ t: 'file_request', path }) }
       break
     }
 

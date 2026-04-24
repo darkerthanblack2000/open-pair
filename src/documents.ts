@@ -126,9 +126,13 @@ export class DocumentRegistry implements vscode.FileSystemProvider {
 
   // ── Apply remote patch ────────────────────────────────────────────────────
 
-  async applyPatch(path: string, lnum: number, count: number, lines: string[]): Promise<void> {
+  // Returns false when the patch is out-of-range (caller should request a resync).
+  async applyPatch(path: string, lnum: number, count: number, lines: string[]): Promise<boolean> {
     const entry = this.entries.get(path)
-    if (!entry) { return }
+    if (!entry) { return false }
+
+    // §7.2: out-of-range patch → signal caller to request full resync
+    if (count !== -1 && lnum > entry.lines.length) { return false }
 
     // Update in-memory lines first
     const endIdx   = count === -1 ? entry.lines.length : lnum + count
@@ -140,13 +144,13 @@ export class DocumentRegistry implements vscode.FileSystemProvider {
     entry.mtime    = Date.now()
 
     const uri = this.uriByPath.get(path)
-    if (!uri) { return }
+    if (!uri) { return true }
 
     const doc = vscode.workspace.textDocuments.find(d => d.uri.toString() === uri.toString())
     if (!doc) {
       // Not open in any editor — notify VS Code so readFile() is called on next open
       this._onDidChangeFile.fire([{ type: vscode.FileChangeType.Changed, uri }])
-      return
+      return true
     }
 
     const startPos = new vscode.Position(lnum, 0)
@@ -161,6 +165,7 @@ export class DocumentRegistry implements vscode.FileSystemProvider {
     edit.replace(uri, new vscode.Range(startPos, endPos), replacement)
     await vscode.workspace.applyEdit(edit)
     entry.applying = false
+    return true
   }
 
   // ── Detect local edits → send patch to host ───────────────────────────────

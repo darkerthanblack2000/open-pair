@@ -13,8 +13,7 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
 const NONCE_LEN = 12
 const TAG_LEN   = 16
 
-// Increment when the message schema changes in a backward-incompatible way.
-export const PROTOCOL_VERSION = 1
+export const PROTOCOL_VERSION = 3
 
 export type LiveShareMessage = Record<string, unknown> & { t: string }
 

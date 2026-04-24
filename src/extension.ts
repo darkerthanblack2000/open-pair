@@ -5,9 +5,10 @@
  *   liveshare.join           Join a Neovim (or VS Code) host as a guest
  *   liveshare.startServer    Start a VS Code host session
  *   liveshare.stop           Stop any active session
- *   liveshare.follow         Toggle follow mode (guest only)
+ *   liveshare.follow         Choose a peer to follow via QuickPick (guest only)
  *   liveshare.openWorkspace  File picker over the remote workspace (guest only)
- *   liveshare.showPeers      Show connected peers
+ *   liveshare.showPeers      Show peers; selecting one activates follow (guest only)
+ *   liveshare.debugInfo      Dump diagnostic info to an output channel
  */
 
 import * as vscode from 'vscode'
@@ -17,7 +18,7 @@ import { CursorManager } from './cursors'
 import { PeerTracker } from './peers'
 import { Host } from './host'
 import { Tunnel, PROVIDER_NAMES, ProviderName } from './tunnel'
-import { LiveShareMessage } from './protocol'
+import { LiveShareMessage, PROTOCOL_VERSION } from './protocol'
 
 // ── Module-level state — only one session at a time ────────────────────────
 
@@ -40,6 +41,7 @@ let followedPeer: number | undefined
 let workspaceFiles: string[] = []
 let displayName : string = ''
 let cursorTimer : ReturnType<typeof setTimeout> | undefined
+let debugChannel: vscode.OutputChannel | undefined
 
 // Shared terminals (guest mode)
 const sharedTerminals = new Map<string, { terminal: vscode.Terminal; writeEmitter: vscode.EventEmitter<string> }>()
@@ -59,6 +61,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('liveshare.follow',        cmdFollow),
     vscode.commands.registerCommand('liveshare.openWorkspace', cmdOpenWorkspace),
     vscode.commands.registerCommand('liveshare.showPeers',     cmdShowPeers),
+    vscode.commands.registerCommand('liveshare.debugInfo',     cmdDebugInfo),
   )
 
   // Guest: emit focus when switching editors
@@ -98,21 +101,21 @@ function teardown(): void {
   session?.dispose()
   docs?.dispose()
   cursors?.clearAll()
-  host         = undefined
-  tunnel       = undefined
-  session      = undefined
-  docs         = undefined
-  cursors      = undefined
-  activeRole   = undefined
-  followedPeer = undefined
+  host           = undefined
+  tunnel         = undefined
+  session        = undefined
+  docs           = undefined
+  cursors        = undefined
+  activeRole     = undefined
+  followedPeer   = undefined
   workspaceFiles = []
-  displayName  = ''
+  displayName    = ''
   peers.clear()
   for (const { terminal } of sharedTerminals.values()) {
     terminal.dispose()
   }
   sharedTerminals.clear()
-  setStatus(null)
+  refreshStatus()
 }
 
 // ── Commands ──────────────────────────────────────────────────────────────────
@@ -149,7 +152,7 @@ async function cmdJoin(): Promise<void> {
   extCtx.subscriptions.push(providerReg)
 
   activeRole = 'guest'
-  setStatus('connecting')
+  refreshStatus()
 
   // Wire patch sender once role is known (after hello)
   let patchSenderReady = false
@@ -207,15 +210,19 @@ async function cmdStartServer(): Promise<void> {
   host  = new Host(
     displayName,
     peers,
-    (peerId) => { peers.upsert(peerId, {}) },
+    (peerId) => {
+      peers.upsert(peerId, {})
+      refreshStatus()
+    },
     (peerId, peerName) => {
       vscode.window.showInformationMessage(`Live Share: ${peerName || `peer ${peerId}`} left`)
+      refreshStatus()
     },
   )
 
   host.start(port)
   activeRole = 'host'
-  setStatus('host')
+  refreshStatus()
 
   if (tunnelProvider) {
     tunnel = new Tunnel()
@@ -269,18 +276,48 @@ function cmdStop(): void {
   vscode.window.showInformationMessage('Live Share: session stopped')
 }
 
-function cmdFollow(): void {
+async function cmdFollow(): Promise<void> {
   if (activeRole !== 'guest') {
     vscode.window.showWarningMessage('Live Share: follow mode is only available as guest')
     return
   }
+
+  const allPeers = peers.getAll()
+  if (allPeers.length === 0) {
+    vscode.window.showWarningMessage('Live Share: no peers to follow yet')
+    return
+  }
+
+  type Item = vscode.QuickPickItem & { peerId?: number; disable?: true }
+  const items: Item[] = allPeers.map(p => {
+    const roleLabel = p.role ? ` [${p.role}]` : ''
+    const eyeMark   = followedPeer === p.peerId ? ' $(eye)' : ''
+    return {
+      label      : `$(person)${eyeMark} ${p.name}${roleLabel}`,
+      description: p.peerId === 0 ? 'host' : `peer ${p.peerId}`,
+      detail     : p.activePath ? `Viewing: ${p.activePath}` : undefined,
+      peerId     : p.peerId,
+    }
+  })
   if (followedPeer !== undefined) {
+    items.push({ label: '$(circle-slash) Disable follow mode', disable: true })
+  }
+
+  const picked = await vscode.window.showQuickPick(items, {
+    placeHolder: 'Select a peer to follow',
+    title      : 'Live Share: Follow',
+  })
+  if (!picked) return
+
+  if (picked.disable) {
     followedPeer = undefined
     vscode.window.showInformationMessage('Live Share: follow mode OFF')
   } else {
-    followedPeer = 0
-    vscode.window.showInformationMessage('Live Share: follow mode ON — following host')
+    followedPeer = picked.peerId
+    const fpName = peers.get(picked.peerId!)?.name ?? `peer ${picked.peerId}`
+    vscode.window.showInformationMessage(`Live Share: following ${fpName}`)
   }
+  refreshStatus()
 }
 
 async function cmdOpenWorkspace(): Promise<void> {
@@ -309,7 +346,102 @@ async function cmdShowPeers(): Promise<void> {
     vscode.window.showWarningMessage('Live Share: not in a session')
     return
   }
-  await peers.showPeers()
+
+  const allPeers = peers.getAll()
+  if (allPeers.length === 0) {
+    vscode.window.showInformationMessage('Live Share: no other peers connected')
+    return
+  }
+
+  type Item = vscode.QuickPickItem & { peerId: number }
+  const items: Item[] = allPeers.map(p => {
+    const roleLabel = p.role ? ` [${p.role}]` : ''
+    const eyeMark   = followedPeer === p.peerId ? ' $(eye)' : ''
+    return {
+      label      : `$(person)${eyeMark} ${p.name}${roleLabel}`,
+      description: p.peerId === 0 ? 'host' : `peer ${p.peerId}`,
+      detail     : p.activePath ? `Viewing: ${p.activePath}` : undefined,
+      peerId     : p.peerId,
+    }
+  })
+
+  const picked = await vscode.window.showQuickPick(items, {
+    placeHolder: activeRole === 'guest' ? 'Select a peer to follow' : `${allPeers.length} peer(s) connected`,
+    title      : 'Live Share: Peers',
+  })
+
+  if (picked && activeRole === 'guest') {
+    followedPeer = picked.peerId
+    const fpName = peers.get(picked.peerId)?.name ?? `peer ${picked.peerId}`
+    vscode.window.showInformationMessage(`Live Share: following ${fpName}`)
+    refreshStatus()
+  }
+}
+
+function cmdDebugInfo(): void {
+  if (!debugChannel) {
+    debugChannel = vscode.window.createOutputChannel('Live Share — Debug Info')
+    extCtx.subscriptions.push(debugChannel)
+  }
+  debugChannel.clear()
+
+  const pkgVersion = (extCtx.extension.packageJSON as Record<string, unknown>).version as string ?? '?'
+  const lines: string[] = [
+    '=== Open Pair — Debug Info ===',
+    `Generated: ${new Date().toISOString()}`,
+    '',
+    '[Extension]',
+    `  Version:           ${pkgVersion}`,
+    `  Protocol version:  ${PROTOCOL_VERSION}`,
+    `  VS Code:           ${vscode.version}`,
+    `  Node.js:           ${process.version}`,
+    `  Platform:          ${process.platform} (${process.arch})`,
+    '',
+  ]
+
+  if (!activeRole) {
+    lines.push('[Session]', '  No active session.', '')
+  } else if (activeRole === 'guest') {
+    const fpName = followedPeer !== undefined
+      ? (peers.get(followedPeer)?.name ?? (followedPeer === 0 ? 'host' : `peer ${followedPeer}`))
+      : 'none'
+    lines.push(
+      '[Session]',
+      `  Role:              guest`,
+      `  Connected:         ${session?.connected ?? false}`,
+      `  Transport:         ${session?.transportMode ?? '?'}`,
+      `  Peer ID:           ${session?.peerId ?? '?'}`,
+      `  Session ID:        ${session?.sid ?? '?'}`,
+      `  Guest role:        ${session?.role ?? '?'}`,
+      `  Following:         ${fpName}`,
+      '',
+    )
+  } else {
+    lines.push(
+      '[Session]',
+      `  Role:              host`,
+      `  Session ID:        ${host?.sessionId ?? '?'}`,
+      `  Port:              ${host?.port ?? '?'}`,
+      `  Share URL:         ${host?.shareUrl ?? '?'}`,
+      `  Guests connected:  ${host?.guestCount ?? 0}`,
+      '',
+    )
+  }
+
+  const allPeers = peers.getAll()
+  if (allPeers.length > 0) {
+    lines.push('[Peers]')
+    for (const p of allPeers) {
+      const roleStr = p.role ? ` [${p.role}]` : ''
+      const pathStr = p.activePath ? `  →  ${p.activePath}` : ''
+      const idLabel = p.peerId === 0 ? '(host)' : `(peer ${p.peerId})`
+      lines.push(`  ${p.name}${roleStr} ${idLabel}${pathStr}`)
+    }
+    lines.push('')
+  }
+
+  debugChannel.append(lines.join('\n'))
+  debugChannel.show(true)
 }
 
 // ── Guest message handler ─────────────────────────────────────────────────────
@@ -320,13 +452,12 @@ async function handleGuestMessage(msg: LiveShareMessage): Promise<void> {
   switch (msg.t) {
 
     case 'hello': {
-      setStatus('connected')
       const roleBadge = session.role === 'ro' ? ' [read-only]' : ''
       vscode.window.showInformationMessage(
         `Live Share: connected${roleBadge} (host: ${msg['host_name'] ?? '?'})`
       )
-      // Register host as peer 0
       peers.upsert(0, { name: (msg['host_name'] as string | undefined) ?? 'host', role: 'rw' })
+      refreshStatus()
       break
     }
 
@@ -354,6 +485,7 @@ async function handleGuestMessage(msg: LiveShareMessage): Promise<void> {
       for (const p of peerList) {
         peers.upsert(p.peer_id, { name: p.name, activePath: p.active_path })
       }
+      refreshStatus()
       break
     }
 
@@ -364,9 +496,8 @@ async function handleGuestMessage(msg: LiveShareMessage): Promise<void> {
       if (followedPeer === 0) {
         await openDoc(uri)
       } else {
-        vscode.window.showInformationMessage(
-          `Live Share: host opened ${path}  (follow mode is off)`
-        )
+        const hint = followedPeer === undefined ? '  (follow mode is off)' : ''
+        vscode.window.showInformationMessage(`Live Share: host opened ${path}${hint}`)
       }
       break
     }
@@ -415,13 +546,13 @@ async function handleGuestMessage(msg: LiveShareMessage): Promise<void> {
     }
 
     case 'cursor': {
-      const path  = msg['path'] as string
-      const peer  = msg['peer'] as number
-      const lnum  = msg['lnum'] as number
-      const col   = msg['col']  as number
-      const name  = msg['name'] as string | undefined
+      const path    = msg['path'] as string
+      const peer    = msg['peer'] as number
+      const lnum    = msg['lnum'] as number
+      const col     = msg['col']  as number
+      const name    = msg['name'] as string | undefined
       const selLnum = msg['sel_lnum'] as number | undefined
-      const sel   = selLnum !== undefined ? {
+      const sel     = selLnum !== undefined ? {
         lnum    : selLnum,
         col     : msg['sel_col']      as number,
         end_lnum: msg['sel_end_lnum'] as number,
@@ -436,8 +567,14 @@ async function handleGuestMessage(msg: LiveShareMessage): Promise<void> {
       const label = (msg['name'] as string | undefined) ?? (peer === 0 ? 'host' : `peer ${peer}`)
       cursors.removePeer(peer)
       peers.remove(peer)
-      vscode.window.showInformationMessage(`Live Share: ${label} left`)
-      if (peer === 0) teardown()
+      if (followedPeer === peer) {
+        followedPeer = undefined
+        vscode.window.showInformationMessage(`Live Share: ${label} left — follow mode disabled`)
+      } else {
+        vscode.window.showInformationMessage(`Live Share: ${label} left`)
+      }
+      if (peer === 0) { teardown(); return }
+      refreshStatus()
       break
     }
 
@@ -448,12 +585,9 @@ async function handleGuestMessage(msg: LiveShareMessage): Promise<void> {
 
       const writeEmitter = new vscode.EventEmitter<string>()
       const pty: vscode.Pseudoterminal = {
-        onDidWrite: writeEmitter.event,
-        open      : () => {},
-        close     : () => {
-          sharedTerminals.delete(termId)
-          writeEmitter.dispose()
-        },
+        onDidWrite : writeEmitter.event,
+        open       : () => {},
+        close      : () => { sharedTerminals.delete(termId); writeEmitter.dispose() },
         handleInput: (data: string) => {
           session?.send({ t: 'terminal_input', term_id: termId, data })
         },
@@ -474,10 +608,7 @@ async function handleGuestMessage(msg: LiveShareMessage): Promise<void> {
     case 'terminal_close': {
       const termId = msg['term_id'] as string
       const entry  = sharedTerminals.get(termId)
-      if (entry) {
-        entry.terminal.dispose()
-        sharedTerminals.delete(termId)
-      }
+      if (entry) { entry.terminal.dispose(); sharedTerminals.delete(termId) }
       break
     }
   }
@@ -495,8 +626,8 @@ async function setDocumentLanguage(doc: vscode.TextDocument): Promise<void> {
   // VS Code should auto-detect language from the URI path for FileSystemProvider.
   // If it falls back to 'plaintext', try to detect from the file extension.
   if (doc.languageId !== 'plaintext') return
-  const ext      = doc.uri.path.split('.').pop()?.toLowerCase()
-  const langId   = EXT_TO_LANG[ext ?? '']
+  const ext   = doc.uri.path.split('.').pop()?.toLowerCase()
+  const langId = EXT_TO_LANG[ext ?? '']
   if (langId) {
     try { await vscode.languages.setTextDocumentLanguage(doc, langId) } catch { /* ignore */ }
   }
@@ -519,18 +650,33 @@ const EXT_TO_LANG: Record<string, string> = {
   hs: 'haskell', ml: 'ocaml', fs: 'fsharp', dart: 'dart', elm: 'elm',
 }
 
-function setStatus(state: 'connecting' | 'connected' | 'host' | null): void {
-  if (state === null) { statusBar.hide(); return }
-  const labels = {
-    connecting: { text: '$(loading~spin) Live Share: connecting…', tip: 'Connecting…' },
-    connected : { text: '$(broadcast) Live Share [guest]',         tip: 'Click to stop session' },
-    host      : { text: '$(broadcast) Live Share [host]',          tip: 'Click to stop hosting' },
-  }
-  const l = labels[state]
-  statusBar.text    = l.text
-  statusBar.tooltip = l.tip
+function refreshStatus(): void {
+  if (!activeRole) { statusBar.hide(); return }
   statusBar.command = 'liveshare.stop'
   statusBar.show()
+
+  if (activeRole === 'guest') {
+    if (!session?.connected) {
+      statusBar.text    = '$(loading~spin) Live Share: connecting…'
+      statusBar.tooltip = 'Connecting…'
+      return
+    }
+    const hostName  = peers.get(0)?.name ?? 'host'
+    const peerCount = peers.count
+    let suffix: string
+    if (followedPeer !== undefined) {
+      const fpName = peers.get(followedPeer)?.name ?? (followedPeer === 0 ? 'host' : `peer ${followedPeer}`)
+      suffix = `following ${fpName}`
+    } else {
+      suffix = `${peerCount} peer${peerCount !== 1 ? 's' : ''}`
+    }
+    statusBar.text    = `$(rss) ${hostName} | ${suffix}`
+    statusBar.tooltip = 'Live Share — guest (click to stop)'
+  } else {
+    const gc = host?.guestCount ?? 0
+    statusBar.text    = `$(broadcast) Hosting | ${gc} guest${gc !== 1 ? 's' : ''}`
+    statusBar.tooltip = 'Live Share — host (click to stop)'
+  }
 }
 
 function uriToPath(uri: vscode.Uri): string {

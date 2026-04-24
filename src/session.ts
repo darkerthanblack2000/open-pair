@@ -79,6 +79,7 @@ export class Session {
   private displayName      : string = ''
 
   get connected(): boolean { return this._connected }
+  get transportMode(): 'ws' | 'tcp' | 'punch' | undefined { return this.parsed?.mode }
 
   onMessage(handler: MessageHandler): void {
     this.handlers.push(handler)

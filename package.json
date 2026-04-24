@@ -59,6 +59,10 @@
       {
         "command": "liveshare.showPeers",
         "title": "Live Share: Show Peers"
+      },
+      {
+        "command": "liveshare.debugInfo",
+        "title": "Live Share: Debug Info"
       }
     ]
   },

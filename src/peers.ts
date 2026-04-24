@@ -29,6 +29,8 @@ export class PeerTracker {
     return this.map.get(peerId)
   }
 
+  get count(): number { return this.map.size }
+
   getAll(): PeerInfo[] {
     return [...this.map.values()].sort((a, b) => a.peerId - b.peerId)
   }

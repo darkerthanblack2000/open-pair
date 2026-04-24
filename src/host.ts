@@ -116,8 +116,9 @@ function isShareable(doc: vscode.TextDocument): boolean {
 function getRelPath(uri: vscode.Uri): string | undefined {
   if (uri.scheme !== 'file') return undefined
   const rel = vscode.workspace.asRelativePath(uri, false)
-  // asRelativePath returns the fsPath unchanged if the file is outside any workspace folder
-  return rel === uri.fsPath ? undefined : rel
+  // asRelativePath returns the fsPath unchanged if the file is outside any workspace folder.
+  // Normalize to forward slashes so paths match on Windows hosts and cross-platform guests.
+  return rel === uri.fsPath ? undefined : rel.replace(/\\/g, '/')
 }
 
 function docToLines(doc: vscode.TextDocument): string[] {
@@ -192,7 +193,7 @@ export class Host {
   }
 
   get port(): number { return this._port }
-
+  get guestCount(): number { return this.clients.size }
   get sessionId(): string { return this.sid }
 
   // ── Public API ─────────────────────────────────────────────────────────────

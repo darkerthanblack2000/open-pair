@@ -97,7 +97,32 @@ export class Tunnel {
       return
     }
 
-    const argv = spec.buildArgv(port)
+    const argv     = spec.buildArgv(port)
+    const needsSsh = argv[0] === 'ssh'
+
+    if (needsSsh && process.platform === 'win32') {
+      // Verify OpenSSH is available before spawning; surface a helpful message if not.
+      cp.exec('ssh -V', (err) => {
+        if (err) {
+          onError(
+            'ssh not found. Install OpenSSH: Settings → Apps → Optional Features → OpenSSH Client, or install Git for Windows.'
+          )
+          return
+        }
+        this._spawn(argv, spec.pattern, onUrl, onError)
+      })
+      return
+    }
+
+    this._spawn(argv, spec.pattern, onUrl, onError)
+  }
+
+  private _spawn(
+    argv   : string[],
+    pattern: RegExp,
+    onUrl  : (url: string) => void,
+    onError: (msg: string) => void,
+  ): void {
     this.proc = cp.spawn(argv[0], argv.slice(1), {
       stdio: ['ignore', 'pipe', 'pipe'],
     })
@@ -109,7 +134,7 @@ export class Tunnel {
     const scan = (chunk: Buffer | string) => {
       if (found) return
       buf += chunk.toString('utf8')
-      const m = buf.match(spec.pattern)
+      const m = buf.match(pattern)
       if (m) {
         found = true
         this.clearTimer()

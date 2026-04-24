@@ -7,7 +7,7 @@ Real-time collaborative editing between VS Code and Neovim, compatible with [azr
 | Feature | Status |
 |---------|--------|
 | Guest join (WebSocket / raw TCP) | ✅ |
-| Host mode (VS Code → Neovim or VS Code guests) | WIP |
+| Host mode (VS Code → Neovim or VS Code guests) | ✅ |
 | AES-256-GCM end-to-end encryption | ✅ |
 | Virtual documents (`liveshare://` scheme) | ✅ |
 | Remote cursors & selections | ✅ |

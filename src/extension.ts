@@ -16,7 +16,7 @@ import { Session, parseShareUrl, SessionLogger } from './session'
 import { DocumentRegistry, SCHEME } from './documents'
 import { CursorManager } from './cursors'
 import { PeerTracker } from './peers'
-import { Host } from './host'
+import { Host, HostLogger } from './host'
 import { Tunnel, PROVIDER_NAMES, ProviderName } from './tunnel'
 import { LiveShareMessage, PROTOCOL_VERSION } from './protocol'
 
@@ -32,6 +32,7 @@ let cursors     : CursorManager    | undefined
 // Host-mode state
 let host        : Host             | undefined
 let tunnel      : Tunnel           | undefined
+let hostCursors : CursorManager    | undefined
 
 // Shared
 let peers       : PeerTracker      = new PeerTracker()
@@ -101,11 +102,13 @@ function teardown(): void {
   session?.dispose()
   docs?.dispose()
   cursors?.clearAll()
+  hostCursors?.clearAll()
   host           = undefined
   tunnel         = undefined
   session        = undefined
   docs           = undefined
   cursors        = undefined
+  hostCursors    = undefined
   activeRole     = undefined
   followedPeer   = undefined
   workspaceFiles = []
@@ -142,7 +145,7 @@ async function cmdJoin(): Promise<void> {
   const parsed = parseShareUrl(input)
 
   docs    = new DocumentRegistry()
-  cursors = new CursorManager(docs)
+  cursors = new CursorManager(path => docs!.getUri(path))
   session = new Session()
 
   // Wire the session logger to the debug Output Channel so transport
@@ -221,7 +224,15 @@ async function cmdStartServer(): Promise<void> {
   const tunnelProvider = tunnelPick.label === 'None' ? undefined : tunnelPick.label as ProviderName
 
   peers = new PeerTracker()
-  host  = new Host(
+
+  // Host-mode cursor manager: resolves relative paths to real file:// URIs
+  const hostWsFolder = vscode.workspace.workspaceFolders?.[0]
+  hostCursors = new CursorManager(path => {
+    if (!hostWsFolder) return undefined
+    return vscode.Uri.joinPath(hostWsFolder.uri, path)
+  })
+
+  host = new Host(
     displayName,
     peers,
     (peerId) => {
@@ -230,9 +241,36 @@ async function cmdStartServer(): Promise<void> {
     },
     (peerId, peerName) => {
       vscode.window.showInformationMessage(`Live Share: ${peerName || `peer ${peerId}`} left`)
+      hostCursors?.removePeer(peerId)
       refreshStatus()
     },
+    (peerId, msg) => {
+      // Render guest cursor positions in the VS Code host editor
+      const path    = msg['path']  as string
+      const lnum    = msg['lnum']  as number
+      const col     = msg['col']   as number
+      const name    = (msg['name'] as string | undefined) ?? peers.get(peerId)?.name ?? `peer ${peerId}`
+      const selLnum = msg['sel_lnum'] as number | undefined
+      const sel     = selLnum !== undefined ? {
+        lnum    : selLnum,
+        col     : msg['sel_col']      as number,
+        end_lnum: msg['sel_end_lnum'] as number,
+        end_col : msg['sel_end_col']  as number,
+      } : undefined
+      hostCursors?.updateCursor(peerId, path, lnum, col, name, sel)
+    },
   )
+
+  if (!debugChannel) {
+    debugChannel = vscode.window.createOutputChannel('Live Share — Debug Info')
+    extCtx.subscriptions.push(debugChannel)
+  }
+  debugChannel.clear()
+  const hostLogger: HostLogger = (msg) => {
+    debugChannel!.appendLine(`[${new Date().toISOString()}] ${msg}`)
+  }
+  host.setLogger(hostLogger)
+  hostLogger(`host started — port=${port} sid=${host.sessionId}`)
 
   host.start(port)
   activeRole = 'host'

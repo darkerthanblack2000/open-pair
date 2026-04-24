@@ -11,7 +11,6 @@
  */
 
 import * as vscode from 'vscode'
-import { DocumentRegistry } from './documents'
 
 // Palette matches the DiagnosticVirtualText* cycle used in Neovim presence.lua
 const PALETTE = [
@@ -35,7 +34,8 @@ interface PeerState {
 export class CursorManager {
   private peers = new Map<number, PeerState>()
 
-  constructor(private readonly docs: DocumentRegistry) {}
+  /** resolver maps a relative path to the URI of the document to decorate. */
+  constructor(private readonly resolver: (path: string) => vscode.Uri | undefined) {}
 
   updateCursor(
     peerId   : number,
@@ -108,7 +108,7 @@ export class CursorManager {
     col      : number,
     sel      ?: { lnum: number; col: number; end_lnum: number; end_col: number },
   ): void {
-    const uri = this.docs.getUri(path)
+    const uri = this.resolver(path)
     if (!uri) { return }
 
     // Find all editors showing this document

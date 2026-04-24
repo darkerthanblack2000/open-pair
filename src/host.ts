@@ -153,6 +153,8 @@ interface PeerConn {
 
 // ── Host class ────────────────────────────────────────────────────────────────
 
+export type HostLogger = (msg: string) => void
+
 export class Host {
   private server     : net.Server | undefined
   private clients    = new Map<number, PeerConn>()
@@ -165,15 +167,21 @@ export class Host {
   private applyingFor = new Set<string>()
   private disposables: vscode.Disposable[] = []
   private _port      = 9876
+  private log        : HostLogger = () => {}
 
   constructor(
     private readonly displayName: string,
     readonly peers: PeerTracker,
-    private readonly onPeerJoin : (peerId: number) => void,
-    private readonly onPeerLeave: (peerId: number, name: string) => void,
+    private readonly onPeerJoin   : (peerId: number) => void,
+    private readonly onPeerLeave  : (peerId: number, name: string) => void,
+    private readonly onGuestCursor?: (peerId: number, msg: LiveShareMessage) => void,
   ) {
     this.sessionKey = crypto.randomBytes(32)
     this.sid        = crypto.randomBytes(8).toString('hex')
+  }
+
+  setLogger(logger: HostLogger): void {
+    this.log = logger
   }
 
   /** Local-only share URL (bare host:port, no tunnel). */
@@ -199,10 +207,18 @@ export class Host {
   // ── Public API ─────────────────────────────────────────────────────────────
 
   start(port: number): void {
-    this._port = port
+    this._port  = port
     this.server = net.createServer(socket => this.onConnect(socket))
-    this.server.listen(port, '0.0.0.0', () => {
-      console.log(`live-share host: listening on port ${port}`)
+    // Omit the hostname so Node.js binds to '::' (dual-stack IPv4+IPv6) when
+    // IPv6 is available, falling back to '0.0.0.0' otherwise.  On Windows the
+    // SSH reverse-tunnel client may resolve 'localhost' to '::1', so we must
+    // accept IPv6 connections or the tunnel forward silently fails.
+    this.server.listen(port, () => {
+      const addr    = this.server?.address()
+      const addrStr = typeof addr === 'object' && addr
+        ? `${addr.address}:${addr.port}` : String(addr)
+      this.log(`server listening on ${addrStr}`)
+      console.log(`live-share host: listening on ${addrStr}`)
     })
     this.server.on('error', (err: Error) => {
       vscode.window.showErrorMessage(`Live Share: server error — ${err.message}`)
@@ -252,12 +268,16 @@ export class Host {
     let buf      = Buffer.alloc(0)
     let detected = false
 
+    const remoteAddr = `${socket.remoteAddress}:${socket.remotePort}`
+    this.log(`peer ${peerId}: TCP connection accepted from ${remoteAddr}`)
+
     // Raw TCP clients (ngrok tcp://) never send data first — they wait for the
     // server's hello. If no bytes arrive within 600 ms, assume raw TCP mode and
     // kick off the approval flow so the server speaks first.
     const detectTimer = setTimeout(() => {
       if (detected) return
       detected = true
+      this.log(`peer ${peerId}: no data after 600ms — assuming raw TCP mode`)
       this.pending.set(peerId, { socket, mode: 'tcp', buf: Buffer.alloc(0) })
       void this.promptApproval(peerId)
     }, 600)
@@ -270,7 +290,10 @@ export class Host {
         detected = true
         clearTimeout(detectTimer)
 
-        if (buf.subarray(0, 4).toString('ascii') === 'GET ') {
+        const prefix = buf.subarray(0, 4).toString('ascii')
+        this.log(`peer ${peerId}: first 4 bytes = ${JSON.stringify(prefix)} (${buf.length} bytes total) — ${prefix === 'GET ' ? 'WebSocket mode' : 'raw TCP mode'}`)
+
+        if (prefix === 'GET ') {
           // WebSocket mode
           this.handleWsHandshake(peerId, socket, buf)
         } else {
@@ -287,7 +310,8 @@ export class Host {
       // (ws and tcp handlers update buf directly via closure or re-route)
     })
 
-    socket.on('error', () => {
+    socket.on('error', (err: Error) => {
+      this.log(`peer ${peerId}: socket error — ${err.message}`)
       clearTimeout(detectTimer)
       this.cleanupPeer(peerId)
     })
@@ -321,9 +345,21 @@ export class Host {
       const rest    = hsBuf.subarray(end + 4)
 
       const keyMatch = headers.match(/[Ss]ec-[Ww]eb[Ss]ocket-[Kk]ey:\s*(\S+)/i)
-      if (!keyMatch) { socket.destroy(); return }
+      if (!keyMatch) {
+        const preview = headers.slice(0, 400)
+        this.log(`peer ${peerId}: WS handshake failed — Sec-WebSocket-Key not found\nHeaders:\n${preview}`)
+        vscode.window.showErrorMessage(
+          `Live Share: WS handshake failed (Sec-WebSocket-Key missing) — check "Live Share — Debug Info" output for headers`
+        )
+        socket.write(
+          'HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n'
+        )
+        setTimeout(() => { if (!socket.destroyed) socket.destroy() }, 200)
+        return
+      }
 
       const accept   = wsAccept(keyMatch[1].trim())
+      this.log(`peer ${peerId}: WS handshake OK (key=${keyMatch[1].trim().slice(0, 8)}…) — sending 101`)
       const response = [
         'HTTP/1.1 101 Switching Protocols',
         'Upgrade: websocket',
@@ -394,6 +430,7 @@ export class Host {
     if (!p) return
     const { socket, mode } = p
 
+    this.log(`peer ${peerId}: showing approval dialog (mode=${mode})`)
     socket.removeAllListeners('data')
     socket.on('data', (chunk: Buffer) => {
       if (mode === 'ws') this.handleWsData(peerId, chunk)
@@ -406,7 +443,12 @@ export class Host {
       'Allow (R/W)', 'Allow (Read Only)', 'Deny',
     )
 
-    if (!this.pending.has(peerId)) return  // disconnected while waiting
+    if (!this.pending.has(peerId)) {
+      this.log(`peer ${peerId}: disconnected while waiting for approval`)
+      return
+    }
+
+    this.log(`peer ${peerId}: approval result = ${choice ?? '(dismissed)'}`)
 
     if (!choice || choice === 'Deny') {
       const frame = this.encodeRaw(p.mode, { t: 'rejected', reason: 'Host denied the connection' })
@@ -444,7 +486,25 @@ export class Host {
       optional_caps    : ['terminal', 'cursor', 'follow'],
     })
 
-    // Scan all workspace files (async) and send the full list
+    // Send open_files_snapshot BEFORE the slow workspace scan.
+    // Neovim starts a 10-second watchdog on hello that is cancelled ONLY by
+    // open_files_snapshot — not by workspace_info. Always send it (empty is fine)
+    // so the watchdog is cancelled before scanWorkspaceFiles() can time it out.
+    const openFiles: { path: string; lines: string[] }[] = []
+    for (const doc of vscode.workspace.textDocuments) {
+      const path = getRelPath(doc.uri)
+      if (path && isShareable(doc)) openFiles.push({ path, lines: docToLines(doc) })
+    }
+    this.send(peerId, { t: 'open_files_snapshot', files: openFiles })
+
+    // Snapshot of connected peers
+    const peerList = this.peers.getAll()
+    if (peerList.length > 0) {
+      this.send(peerId, { t: 'peers_snapshot', peers: peerList })
+    }
+
+    // Scan all workspace files (async) — can be slow on large workspaces;
+    // send after open_files_snapshot so Neovim's watchdog is already cancelled.
     const wsFolder = vscode.workspace.workspaceFolders?.[0]
     const files    = await scanWorkspaceFiles()
     this.send(peerId, {
@@ -452,22 +512,6 @@ export class Host {
       root_name: wsFolder?.name ?? 'workspace',
       files,
     })
-
-    // Snapshot of all currently open shareable buffers
-    const openFiles: { path: string; lines: string[] }[] = []
-    for (const doc of vscode.workspace.textDocuments) {
-      const path = getRelPath(doc.uri)
-      if (path && isShareable(doc)) openFiles.push({ path, lines: docToLines(doc) })
-    }
-    if (openFiles.length > 0) {
-      this.send(peerId, { t: 'open_files_snapshot', files: openFiles })
-    }
-
-    // Snapshot of connected peers
-    const peerList = this.peers.getAll()
-    if (peerList.length > 0) {
-      this.send(peerId, { t: 'peers_snapshot', peers: peerList })
-    }
 
     // Tell other guests about the new peer (will be named once hello_ack arrives)
     this.broadcast({ t: 'peers_snapshot', peers: [{ peer_id: peerId, name: `guest ${peerId}` }] }, peerId)
@@ -509,8 +553,8 @@ export class Host {
       case 'cursor': {
         const path = msg['path'] as string
         this.peers.upsert(fromPeer, { activePath: path })
-        // Broadcast to all other guests (stamp peer id)
         this.broadcast({ ...msg, peer: fromPeer }, fromPeer)
+        this.onGuestCursor?.(fromPeer, msg)
         break
       }
 
@@ -558,8 +602,8 @@ export class Host {
       try {
         const bytes = await vscode.workspace.fs.readFile(fileUri)
         const text  = Buffer.from(bytes).toString('utf8')
-        const lines = text.split('\n')
-        // Remove trailing empty element produced by a final newline
+        // Split on \r?\n so Windows CRLF files don't embed \r into every line
+        const lines = text.split(/\r?\n/)
         if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
         this.send(peerId, { t: 'file_response', path, lines, readonly: false, req_id: reqId })
         return

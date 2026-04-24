@@ -34,29 +34,31 @@ interface ProviderSpec {
 
 const PROVIDERS: Record<ProviderName, ProviderSpec> = {
   'nokey@localhost.run': {
+    // No -N: localhost.run prints the URL via the remote command channel,
+    // which is only invoked when SSH executes a remote command (without -N).
     buildArgv: (port) => [
-      'ssh', '-o', 'StrictHostKeyChecking=no', '-N',
+      'ssh', '-o', 'StrictHostKeyChecking=no', '-o', 'BatchMode=yes',
       '-R', `80:localhost:${port}`,
       'nokey@localhost.run',
     ],
-    pattern: /https:\/\/[\w.-]+\.lhr\.life/,
+    pattern: /https?:\/\/[\w.-]+\.lhr\.life/,
   },
   'localhost.run': {
     buildArgv: (port) => [
-      'ssh', '-o', 'StrictHostKeyChecking=no', '-N',
+      'ssh', '-o', 'StrictHostKeyChecking=no', '-o', 'BatchMode=yes',
       '-R', `80:localhost:${port}`,
       'localhost.run',
     ],
-    pattern: /https:\/\/[\w.-]+\.lhr\.life/,
+    pattern: /https?:\/\/[\w.-]+\.lhr\.life/,
   },
   'serveo.net': {
     buildArgv: (port) => [
-      'ssh', '-o', 'StrictHostKeyChecking=no', '-N',
+      'ssh', '-o', 'StrictHostKeyChecking=no', '-o', 'BatchMode=yes',
       '-R', `80:localhost:${port}`,
       'serveo.net',
     ],
     // serveo prints e.g. "Forwarding HTTP traffic from https://abcdef.serveo.net"
-    pattern: /https:\/\/[\w.-]+\.serveo\.net/,
+    pattern: /https?:\/\/[\w.-]+\.serveo\.net/,
   },
   'ngrok': {
     buildArgv: (port) => [
@@ -170,7 +172,12 @@ export class Tunnel {
     this.timer = setTimeout(() => {
       if (!found) {
         found = true
-        onError(`Tunnel URL not found after ${URL_TIMEOUT_MS / 1000}s — is ${argv[0]} installed and reachable?`)
+        const preview = buf.length > 0
+          ? `\nSSH output so far:\n${buf.slice(0, 500)}`
+          : '\n(no output received from SSH process)'
+        onError(
+          `Tunnel URL not found after ${URL_TIMEOUT_MS / 1000}s — is ${argv[0]} installed and reachable?${preview}`
+        )
         this.stop()
       }
     }, URL_TIMEOUT_MS)

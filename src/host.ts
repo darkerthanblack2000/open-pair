@@ -348,9 +348,8 @@ export class Host {
 
     socket.on('close', () => {
       clearTimeout(detectTimer)
-      const entry = this.clients.get(peerId) ?? this.pending.get(peerId)
-      const name = entry?.name ?? `peer ${peerId}`
       const wasClient = this.clients.has(peerId)
+      const name = this.clients.get(peerId)?.name ?? `peer ${peerId}`
 
       this.log(`peer ${peerId}: connection closed (wasClient=${wasClient})`)
       this.cleanupPeer(peerId)
@@ -467,13 +466,13 @@ export class Host {
 
     if (!choice || choice === 'Deny') {
       const frame = this.encodeRaw(p.mode, { t: 'rejected', reason: 'Host denied the connection' })
-      if (frame && !socket.destroyed) {
-        socket.write(frame)
+      if (frame && !p.socket.destroyed) {
+        p.socket.write(frame)
         setTimeout(() => {
-          if (!socket.destroyed) socket.destroy()
+          if (!p.socket.destroyed) p.socket.destroy()
         }, 200)
-      } else if (!socket.destroyed) {
-        socket.destroy()
+      } else if (!p.socket.destroyed) {
+        p.socket.destroy()
       }
       this.pending.delete(peerId)
       return

@@ -38,31 +38,31 @@
     "commands": [
       {
         "command": "liveshare.join",
-        "title": "Live Share: Join Session"
+        "title": "Open Pair: Join Session"
       },
       {
         "command": "liveshare.startServer",
-        "title": "Live Share: Start Hosting"
+        "title": "Open Pair: Start Hosting"
       },
       {
         "command": "liveshare.stop",
-        "title": "Live Share: Stop Session"
+        "title": "Open Pair: Stop Session"
       },
       {
         "command": "liveshare.follow",
-        "title": "Live Share: Toggle Follow Mode"
+        "title": "Open Pair: Toggle Follow Mode"
       },
       {
         "command": "liveshare.openWorkspace",
-        "title": "Live Share: Open Workspace File"
+        "title": "Open Pair: Open Workspace File"
       },
       {
         "command": "liveshare.showPeers",
-        "title": "Live Share: Show Peers"
+        "title": "Open Pair: Show Peers"
       },
       {
         "command": "liveshare.debugInfo",
-        "title": "Live Share: Debug Info"
+        "title": "Open Pair: Debug Info"
       }
     ]
   },

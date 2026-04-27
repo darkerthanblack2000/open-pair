@@ -1,5 +1,5 @@
 /**
- * host.ts — VS Code as Live Share host (server).
+ * host.ts — VS Code as Open Pair host (server).
  *
  * Architecture mirrors Neovim's collab/server.lua + host.lua:
  *   - TCP server that auto-detects WebSocket vs raw TCP from first 4 bytes
@@ -242,7 +242,7 @@ export class Host {
       console.log(`live-share host: listening on ${addrStr}`)
     })
     this.server.on('error', (err: Error) => {
-      vscode.window.showErrorMessage(`Live Share: server error — ${err.message}`)
+      vscode.window.showErrorMessage(`Open Pair: server error — ${err.message}`)
     })
     this.setupWatchers()
   }
@@ -370,7 +370,7 @@ export class Host {
         const preview = headers.slice(0, 400)
         this.log(`peer ${peerId}: WS handshake failed — Sec-WebSocket-Key not found\nHeaders:\n${preview}`)
         vscode.window.showErrorMessage(
-          `Live Share: WS handshake failed (Sec-WebSocket-Key missing) — check "Live Share — Debug Info" output for headers`
+          `Open Pair: WS handshake failed (Sec-WebSocket-Key missing) — check "Open Pair — Debug Info" output for headers`
         )
         socket.write(
           'HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n'
@@ -459,7 +459,7 @@ export class Host {
     })
 
     const choice = await vscode.window.showInformationMessage(
-      `Live Share: guest wants to join`,
+      `Open Pair: guest wants to join`,
       { modal: false },
       'Allow (R/W)', 'Allow (Read Only)', 'Deny',
     )
@@ -555,7 +555,7 @@ export class Host {
         this.peers.upsert(fromPeer, { name, role: client.role })
         const caps = msg['caps'] as string[] | undefined
         console.log(`live-share: ${name} caps: ${caps?.join(', ') ?? 'none'}`)
-        vscode.window.showInformationMessage(`Live Share: ${name} joined [${client.role}]`)
+        vscode.window.showInformationMessage(`Open Pair: ${name} joined [${client.role}]`)
         // Broadcast updated peer info to all other guests
         this.broadcast({ t: 'peers_snapshot', peers: [{ peer_id: fromPeer, name }] }, fromPeer)
         break
@@ -600,7 +600,7 @@ export class Host {
         this.peers.remove(fromPeer)
         this.cleanupPeer(fromPeer)
         this.onPeerLeave(fromPeer, name)
-        vscode.window.showInformationMessage(`Live Share: ${name} left`)
+        vscode.window.showInformationMessage(`Open Pair: ${name} left`)
         break
       }
     }

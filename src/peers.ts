@@ -42,7 +42,7 @@ export class PeerTracker {
   async showPeers(): Promise<void> {
     const peers = this.getAll()
     if (peers.length === 0) {
-      vscode.window.showInformationMessage('Live Share: no other peers connected')
+      vscode.window.showInformationMessage('Open Pair: no other peers connected')
       return
     }
     const items = peers.map(p => {

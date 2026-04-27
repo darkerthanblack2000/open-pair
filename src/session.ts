@@ -95,13 +95,13 @@ export class Session {
   connect(parsed: ParsedUrl, displayName: string): void {
     if (parsed.mode === 'punch') {
       vscode.window.showErrorMessage(
-        'Live Share: Punch (P2P UDP) transport is not supported — use a WS or TCP URL'
+        'Open Pair: Punch (P2P UDP) transport is not supported — use a WS or TCP URL'
       )
       return
     }
     if (!parsed.key) {
       vscode.window.showErrorMessage(
-        'Live Share: no encryption key found in URL (#key=…) — refusing to connect without encryption'
+        'Open Pair: no encryption key found in URL (#key=…) — refusing to connect without encryption'
       )
       return
     }
@@ -137,14 +137,14 @@ export class Session {
         const remoteVersion = msg['protocol_version'] as number | undefined
         if (remoteVersion !== undefined && remoteVersion !== PROTOCOL_VERSION) {
           vscode.window.showWarningMessage(
-            `Live Share: protocol version mismatch (host=${remoteVersion}, ours=${PROTOCOL_VERSION}) — behaviour may be undefined`
+            `Open Pair: protocol version mismatch (host=${remoteVersion}, ours=${PROTOCOL_VERSION}) — behaviour may be undefined`
           )
         }
         const requiredCaps  = (msg['required_caps'] as string[] | undefined) ?? []
         const unsupported   = requiredCaps.filter(c => !SUPPORTED_CAPS.has(c))
         if (unsupported.length > 0) {
           vscode.window.showErrorMessage(
-            `Live Share: host requires unsupported capabilities: ${unsupported.join(', ')} — disconnecting`
+            `Open Pair: host requires unsupported capabilities: ${unsupported.join(', ')} — disconnecting`
           )
           this.dispose()
           return
@@ -161,7 +161,7 @@ export class Session {
 
       if (msg.t === 'rejected') {
         const reason = (msg['reason'] as string | undefined) ?? 'no reason given'
-        vscode.window.showErrorMessage(`Live Share: connection rejected — ${reason}`)
+        vscode.window.showErrorMessage(`Open Pair: connection rejected — ${reason}`)
         this.dispose()
         return
       }
@@ -169,7 +169,7 @@ export class Session {
       if (msg.t === 'error') {
         const code    = (msg['code']    as string | undefined) ?? 'unknown'
         const message = (msg['message'] as string | undefined) ?? ''
-        vscode.window.showErrorMessage(`Live Share: host error [${code}] ${message}`)
+        vscode.window.showErrorMessage(`Open Pair: host error [${code}] ${message}`)
         return
       }
 
@@ -185,7 +185,7 @@ export class Session {
       // §7.3: session URLs are single-use — do not auto-reconnect after disconnect
       if (!this.intentionalClose) {
         vscode.window.showErrorMessage(
-          `Live Share: disconnected${detail} — rejoin manually with a new URL`,
+          `Open Pair: disconnected${detail} — rejoin manually with a new URL`,
           'Dismiss'
         )
         for (const h of this.handlers) { h({ t: 'bye', peer: 0 }) }
@@ -194,7 +194,7 @@ export class Session {
 
     t.on('error', (err: Error) => {
       this.log(`transport error — ${err.message}`)
-      vscode.window.showErrorMessage(`Live Share: connection error — ${err.message}`)
+      vscode.window.showErrorMessage(`Open Pair: connection error — ${err.message}`)
       this._connected = false
     })
   }

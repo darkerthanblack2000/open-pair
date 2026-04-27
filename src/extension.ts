@@ -125,12 +125,12 @@ function teardown(): void {
 
 async function cmdJoin(): Promise<void> {
   if (activeRole) {
-    vscode.window.showWarningMessage('Live Share: session already active — run "Stop Session" first')
+    vscode.window.showWarningMessage('Open Pair: session already active — run "Stop Session" first')
     return
   }
 
   const input = await vscode.window.showInputBox({
-    prompt      : 'Paste the Live Share URL',
+    prompt      : 'Paste the Open Pair URL',
     placeHolder : 'tcp://host:port#key=... or https://host#key=... or host:port#key=...',
   })
   if (!input) return
@@ -152,7 +152,7 @@ async function cmdJoin(): Promise<void> {
   // events (open, message, close, error) are always visible without
   // needing to open VS Code Developer Tools.
   if (!debugChannel) {
-    debugChannel = vscode.window.createOutputChannel('Live Share — Debug Info')
+    debugChannel = vscode.window.createOutputChannel('Open Pair — Debug Info')
     extCtx.subscriptions.push(debugChannel)
   }
   debugChannel.clear()
@@ -188,12 +188,12 @@ async function cmdJoin(): Promise<void> {
 
 async function cmdStartServer(): Promise<void> {
   if (activeRole) {
-    vscode.window.showWarningMessage('Live Share: session already active — run "Stop Session" first')
+    vscode.window.showWarningMessage('Open Pair: session already active — run "Stop Session" first')
     return
   }
 
   if (!vscode.workspace.workspaceFolders?.length) {
-    vscode.window.showErrorMessage('Live Share: open a folder or workspace before hosting')
+    vscode.window.showErrorMessage('Open Pair: open a folder or workspace before hosting')
     return
   }
 
@@ -218,7 +218,7 @@ async function cmdStartServer(): Promise<void> {
   ]
   const tunnelPick = await vscode.window.showQuickPick(tunnelItems, {
     placeHolder: 'Select a tunnel provider (or None for local)',
-    title      : 'Live Share: Tunnel',
+    title      : 'Open Pair: Tunnel',
   })
   if (tunnelPick === undefined) return
   const tunnelProvider = tunnelPick.label === 'None' ? undefined : tunnelPick.label as ProviderName
@@ -240,7 +240,7 @@ async function cmdStartServer(): Promise<void> {
       refreshStatus()
     },
     (peerId, peerName) => {
-      vscode.window.showInformationMessage(`Live Share: ${peerName || `peer ${peerId}`} left`)
+      vscode.window.showInformationMessage(`Open Pair: ${peerName || `peer ${peerId}`} left`)
       hostCursors?.removePeer(peerId)
       refreshStatus()
     },
@@ -262,7 +262,7 @@ async function cmdStartServer(): Promise<void> {
   )
 
   if (!debugChannel) {
-    debugChannel = vscode.window.createOutputChannel('Live Share — Debug Info')
+    debugChannel = vscode.window.createOutputChannel('Open Pair — Debug Info')
     extCtx.subscriptions.push(debugChannel)
   }
   debugChannel.clear()
@@ -278,7 +278,7 @@ async function cmdStartServer(): Promise<void> {
 
   if (tunnelProvider) {
     tunnel = new Tunnel()
-    vscode.window.showInformationMessage(`Live Share: starting ${tunnelProvider} tunnel…`)
+    vscode.window.showInformationMessage(`Open Pair: starting ${tunnelProvider} tunnel…`)
 
     tunnel.start(
       port,
@@ -287,21 +287,21 @@ async function cmdStartServer(): Promise<void> {
         const url = tunnelUrl + host!.keyFragment
         await vscode.env.clipboard.writeText(url)
         vscode.window.showInformationMessage(
-          `Live Share: tunnel ready. URL copied to clipboard.`,
+          `Open Pair: tunnel ready. URL copied to clipboard.`,
           'Show URL',
         ).then(choice => {
           if (choice === 'Show URL') vscode.window.showInformationMessage(url, { modal: true })
         })
       },
       (errMsg) => {
-        vscode.window.showErrorMessage(`Live Share: tunnel error — ${errMsg}`)
+        vscode.window.showErrorMessage(`Open Pair: tunnel error — ${errMsg}`)
       },
     )
   } else {
     const url = host.shareUrl
     await vscode.env.clipboard.writeText(url)
     vscode.window.showInformationMessage(
-      `Live Share: hosting on port ${port}. URL copied to clipboard.`,
+      `Open Pair: hosting on port ${port}. URL copied to clipboard.`,
       'Show URL',
     ).then(choice => {
       if (choice === 'Show URL') vscode.window.showInformationMessage(url, { modal: true })
@@ -321,22 +321,22 @@ function tunnelDescription(provider: ProviderName): string {
 
 function cmdStop(): void {
   if (!activeRole) {
-    vscode.window.showInformationMessage('Live Share: no active session')
+    vscode.window.showInformationMessage('Open Pair: no active session')
     return
   }
   teardown()
-  vscode.window.showInformationMessage('Live Share: session stopped')
+  vscode.window.showInformationMessage('Open Pair: session stopped')
 }
 
 async function cmdFollow(): Promise<void> {
   if (activeRole !== 'guest') {
-    vscode.window.showWarningMessage('Live Share: follow mode is only available as guest')
+    vscode.window.showWarningMessage('Open Pair: follow mode is only available as guest')
     return
   }
 
   const allPeers = peers.getAll()
   if (allPeers.length === 0) {
-    vscode.window.showWarningMessage('Live Share: no peers to follow yet')
+    vscode.window.showWarningMessage('Open Pair: no peers to follow yet')
     return
   }
 
@@ -357,29 +357,29 @@ async function cmdFollow(): Promise<void> {
 
   const picked = await vscode.window.showQuickPick(items, {
     placeHolder: 'Select a peer to follow',
-    title      : 'Live Share: Follow',
+    title      : 'Open Pair: Follow',
   })
   if (!picked) return
 
   if (picked.disable) {
     followedPeer = undefined
-    vscode.window.showInformationMessage('Live Share: follow mode OFF')
+    vscode.window.showInformationMessage('Open Pair: follow mode OFF')
   } else {
     followedPeer = picked.peerId
     const fpName = peers.get(picked.peerId!)?.name ?? `peer ${picked.peerId}`
-    vscode.window.showInformationMessage(`Live Share: following ${fpName}`)
+    vscode.window.showInformationMessage(`Open Pair: following ${fpName}`)
   }
   refreshStatus()
 }
 
 async function cmdOpenWorkspace(): Promise<void> {
   if (activeRole !== 'guest' || !docs) {
-    vscode.window.showWarningMessage('Live Share: only available as guest')
+    vscode.window.showWarningMessage('Open Pair: only available as guest')
     return
   }
   const allPaths = workspaceFiles.length > 0 ? workspaceFiles : docs.listPaths()
   if (allPaths.length === 0) {
-    vscode.window.showInformationMessage('Live Share: no files available yet')
+    vscode.window.showInformationMessage('Open Pair: no files available yet')
     return
   }
   const picked = await vscode.window.showQuickPick(allPaths, { placeHolder: 'Select a file to open' })
@@ -395,13 +395,13 @@ async function cmdOpenWorkspace(): Promise<void> {
 
 async function cmdShowPeers(): Promise<void> {
   if (!activeRole) {
-    vscode.window.showWarningMessage('Live Share: not in a session')
+    vscode.window.showWarningMessage('Open Pair: not in a session')
     return
   }
 
   const allPeers = peers.getAll()
   if (allPeers.length === 0) {
-    vscode.window.showInformationMessage('Live Share: no other peers connected')
+    vscode.window.showInformationMessage('Open Pair: no other peers connected')
     return
   }
 
@@ -419,20 +419,20 @@ async function cmdShowPeers(): Promise<void> {
 
   const picked = await vscode.window.showQuickPick(items, {
     placeHolder: activeRole === 'guest' ? 'Select a peer to follow' : `${allPeers.length} peer(s) connected`,
-    title      : 'Live Share: Peers',
+    title      : 'Open Pair: Peers',
   })
 
   if (picked && activeRole === 'guest') {
     followedPeer = picked.peerId
     const fpName = peers.get(picked.peerId)?.name ?? `peer ${picked.peerId}`
-    vscode.window.showInformationMessage(`Live Share: following ${fpName}`)
+    vscode.window.showInformationMessage(`Open Pair: following ${fpName}`)
     refreshStatus()
   }
 }
 
 function cmdDebugInfo(): void {
   if (!debugChannel) {
-    debugChannel = vscode.window.createOutputChannel('Live Share — Debug Info')
+    debugChannel = vscode.window.createOutputChannel('Open Pair — Debug Info')
     extCtx.subscriptions.push(debugChannel)
   }
   debugChannel.clear()
@@ -506,7 +506,7 @@ async function handleGuestMessage(msg: LiveShareMessage): Promise<void> {
     case 'hello': {
       const roleBadge = session.role === 'ro' ? ' [read-only]' : ''
       vscode.window.showInformationMessage(
-        `Live Share: connected${roleBadge} (host: ${msg['host_name'] ?? '?'})`
+        `Open Pair: connected${roleBadge} (host: ${msg['host_name'] ?? '?'})`
       )
       peers.upsert(0, { name: (msg['host_name'] as string | undefined) ?? 'host', role: 'rw' })
       refreshStatus()
@@ -517,7 +517,7 @@ async function handleGuestMessage(msg: LiveShareMessage): Promise<void> {
       workspaceFiles = (msg['files'] as string[] | undefined) ?? []
       const rootName = (msg['root_name'] as string | undefined) ?? '?'
       vscode.window.showInformationMessage(
-        `Live Share: workspace '${rootName}' (${workspaceFiles.length} files). Use "Open Workspace File" to browse.`
+        `Open Pair: workspace '${rootName}' (${workspaceFiles.length} files). Use "Open Workspace File" to browse.`
       )
       break
     }
@@ -549,7 +549,7 @@ async function handleGuestMessage(msg: LiveShareMessage): Promise<void> {
         await openDoc(uri)
       } else {
         const hint = followedPeer === undefined ? '  (follow mode is off)' : ''
-        vscode.window.showInformationMessage(`Live Share: host opened ${path}${hint}`)
+        vscode.window.showInformationMessage(`Open Pair: host opened ${path}${hint}`)
       }
       break
     }
@@ -558,7 +558,7 @@ async function handleGuestMessage(msg: LiveShareMessage): Promise<void> {
       const path = msg['path'] as string
       cursors.clearForPath(path)
       docs.close(path)
-      vscode.window.showInformationMessage(`Live Share: host closed ${path}`)
+      vscode.window.showInformationMessage(`Open Pair: host closed ${path}`)
       break
     }
 
@@ -581,7 +581,7 @@ async function handleGuestMessage(msg: LiveShareMessage): Promise<void> {
     }
 
     case 'save_file':
-      vscode.window.showInformationMessage(`Live Share: host saved ${msg['path']}`)
+      vscode.window.showInformationMessage(`Open Pair: host saved ${msg['path']}`)
       break
 
     case 'focus': {
@@ -621,9 +621,9 @@ async function handleGuestMessage(msg: LiveShareMessage): Promise<void> {
       peers.remove(peer)
       if (followedPeer === peer) {
         followedPeer = undefined
-        vscode.window.showInformationMessage(`Live Share: ${label} left — follow mode disabled`)
+        vscode.window.showInformationMessage(`Open Pair: ${label} left — follow mode disabled`)
       } else {
-        vscode.window.showInformationMessage(`Live Share: ${label} left`)
+        vscode.window.showInformationMessage(`Open Pair: ${label} left`)
       }
       if (peer === 0) { teardown(); return }
       refreshStatus()
@@ -632,7 +632,7 @@ async function handleGuestMessage(msg: LiveShareMessage): Promise<void> {
 
     case 'terminal_open': {
       const termId = msg['term_id'] as string
-      const name   = (msg['name'] as string | undefined) ?? `Live Share Terminal`
+      const name   = (msg['name'] as string | undefined) ?? `Open Pair Terminal`
       if (sharedTerminals.has(termId)) break
 
       const writeEmitter = new vscode.EventEmitter<string>()
@@ -709,7 +709,7 @@ function refreshStatus(): void {
 
   if (activeRole === 'guest') {
     if (!session?.connected) {
-      statusBar.text    = '$(loading~spin) Live Share: connecting…'
+      statusBar.text    = '$(loading~spin) Open Pair: connecting…'
       statusBar.tooltip = 'Connecting…'
       return
     }
@@ -723,11 +723,11 @@ function refreshStatus(): void {
       suffix = `${peerCount} peer${peerCount !== 1 ? 's' : ''}`
     }
     statusBar.text    = `$(rss) ${hostName} | ${suffix}`
-    statusBar.tooltip = 'Live Share — guest (click to stop)'
+    statusBar.tooltip = 'Open Pair — guest (click to stop)'
   } else {
     const gc = host?.guestCount ?? 0
     statusBar.text    = `$(broadcast) Hosting | ${gc} guest${gc !== 1 ? 's' : ''}`
-    statusBar.tooltip = 'Live Share — host (click to stop)'
+    statusBar.tooltip = 'Open Pair — host (click to stop)'
   }
 }
 

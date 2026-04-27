@@ -127,6 +127,27 @@ function docToLines(doc: vscode.TextDocument): string[] {
   return lines
 }
 
+function decodeBytesToText(bytes: Uint8Array): string {
+  // BOM-based detection
+  if (bytes.length >= 2 && bytes[0] === 0xFF && bytes[1] === 0xFE)
+    return new TextDecoder('utf-16le').decode(bytes)
+  if (bytes.length >= 2 && bytes[0] === 0xFE && bytes[1] === 0xFF)
+    return new TextDecoder('utf-16be').decode(bytes)
+
+  // BOM-less UTF-16 LE heuristic: sample up to 256 bytes and check whether
+  // odd-indexed bytes are overwhelmingly 0x00 (ASCII chars encoded as XX 00).
+  const sample = Math.min(bytes.length, 256)
+  if (sample >= 8) {
+    let nullsAtOdd = 0
+    for (let i = 1; i < sample; i += 2) if (bytes[i] === 0) nullsAtOdd++
+    if (nullsAtOdd / (sample / 2) > 0.6)
+      return new TextDecoder('utf-16le').decode(bytes)
+  }
+
+  // UTF-8 (with or without BOM — TextDecoder strips it automatically)
+  return new TextDecoder('utf-8').decode(bytes)
+}
+
 async function scanWorkspaceFiles(): Promise<string[]> {
   const uris = await vscode.workspace.findFiles(
     '**/*',
@@ -601,7 +622,7 @@ export class Host {
       const fileUri = vscode.Uri.joinPath(wsFolder.uri, path)
       try {
         const bytes = await vscode.workspace.fs.readFile(fileUri)
-        const text  = Buffer.from(bytes).toString('utf8')
+        const text  = decodeBytesToText(bytes)
         // Split on \r?\n so Windows CRLF files don't embed \r into every line
         const lines = text.split(/\r?\n/)
         if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()

@@ -19,11 +19,7 @@
 
 import * as cp from 'node:child_process'
 
-export type ProviderName =
-  | 'nokey@localhost.run'
-  | 'localhost.run'
-  | 'serveo.net'
-  | 'ngrok'
+export type ProviderName = 'nokey@localhost.run' | 'localhost.run' | 'serveo.net' | 'ngrok'
 
 interface ProviderSpec {
   /** Returns the argv array for the tunnel command. */
@@ -37,33 +33,46 @@ const PROVIDERS: Record<ProviderName, ProviderSpec> = {
     // No -N: localhost.run prints the URL via the remote command channel,
     // which is only invoked when SSH executes a remote command (without -N).
     buildArgv: (port) => [
-      'ssh', '-o', 'StrictHostKeyChecking=no', '-o', 'BatchMode=yes',
-      '-R', `80:localhost:${port}`,
+      'ssh',
+      '-o',
+      'StrictHostKeyChecking=no',
+      '-o',
+      'BatchMode=yes',
+      '-R',
+      `80:localhost:${port}`,
       'nokey@localhost.run',
     ],
     pattern: /https?:\/\/[\w.-]+\.lhr\.life/,
   },
   'localhost.run': {
     buildArgv: (port) => [
-      'ssh', '-o', 'StrictHostKeyChecking=no', '-o', 'BatchMode=yes',
-      '-R', `80:localhost:${port}`,
+      'ssh',
+      '-o',
+      'StrictHostKeyChecking=no',
+      '-o',
+      'BatchMode=yes',
+      '-R',
+      `80:localhost:${port}`,
       'localhost.run',
     ],
     pattern: /https?:\/\/[\w.-]+\.lhr\.life/,
   },
   'serveo.net': {
     buildArgv: (port) => [
-      'ssh', '-o', 'StrictHostKeyChecking=no', '-o', 'BatchMode=yes',
-      '-R', `80:localhost:${port}`,
+      'ssh',
+      '-o',
+      'StrictHostKeyChecking=no',
+      '-o',
+      'BatchMode=yes',
+      '-R',
+      `80:localhost:${port}`,
       'serveo.net',
     ],
     // serveo prints e.g. "Forwarding HTTP traffic from https://abcdef.serveo.net"
     pattern: /https?:\/\/[\w.-]+\.serveo\.net/,
   },
-  'ngrok': {
-    buildArgv: (port) => [
-      'ngrok', 'tcp', String(port), '--log', 'stdout',
-    ],
+  ngrok: {
+    buildArgv: (port) => ['ngrok', 'tcp', String(port), '--log', 'stdout'],
     // ngrok prints e.g. msg="started tunnel" ... url=tcp://0.tcp.ngrok.io:12345
     pattern: /tcp:\/\/[\w.-]+\.ngrok(?:free)?\.app:\d+|tcp:\/\/\d+\.tcp\.ngrok\.io:\d+/,
   },
@@ -75,8 +84,8 @@ export const PROVIDER_NAMES = Object.keys(PROVIDERS) as ProviderName[]
 const URL_TIMEOUT_MS = 30_000
 
 export class Tunnel {
-  private proc   : cp.ChildProcess | undefined
-  private timer  : ReturnType<typeof setTimeout> | undefined
+  private proc: cp.ChildProcess | undefined
+  private timer: ReturnType<typeof setTimeout> | undefined
   private stopped = false
 
   /**
@@ -87,19 +96,14 @@ export class Tunnel {
    * @param onUrl    Called once with the public URL (without key fragment).
    * @param onError  Called if the tunnel fails to start or times out.
    */
-  start(
-    port: number,
-    provider: ProviderName,
-    onUrl: (url: string) => void,
-    onError: (msg: string) => void,
-  ): void {
+  start(port: number, provider: ProviderName, onUrl: (url: string) => void, onError: (msg: string) => void): void {
     const spec = PROVIDERS[provider]
     if (!spec) {
       onError(`Unknown tunnel provider: ${provider}`)
       return
     }
 
-    const argv     = spec.buildArgv(port)
+    const argv = spec.buildArgv(port)
     const needsSsh = argv[0] === 'ssh'
 
     if (needsSsh && process.platform === 'win32') {
@@ -107,7 +111,7 @@ export class Tunnel {
       cp.exec('ssh -V', (err) => {
         if (err) {
           onError(
-            'ssh not found. Install OpenSSH: Settings → Apps → Optional Features → OpenSSH Client, or install Git for Windows.'
+            'ssh not found. Install OpenSSH: Settings → Apps → Optional Features → OpenSSH Client, or install Git for Windows.',
           )
           return
         }
@@ -119,17 +123,12 @@ export class Tunnel {
     this._spawn(argv, spec.pattern, onUrl, onError)
   }
 
-  private _spawn(
-    argv   : string[],
-    pattern: RegExp,
-    onUrl  : (url: string) => void,
-    onError: (msg: string) => void,
-  ): void {
+  private _spawn(argv: string[], pattern: RegExp, onUrl: (url: string) => void, onError: (msg: string) => void): void {
     this.proc = cp.spawn(argv[0], argv.slice(1), {
       stdio: ['ignore', 'pipe', 'pipe'],
     })
 
-    let buf   = ''
+    let buf = ''
     let found = false
     this.stopped = false
 
@@ -172,11 +171,10 @@ export class Tunnel {
     this.timer = setTimeout(() => {
       if (!found) {
         found = true
-        const preview = buf.length > 0
-          ? `\nSSH output so far:\n${buf.slice(0, 500)}`
-          : '\n(no output received from SSH process)'
+        const preview =
+          buf.length > 0 ? `\nSSH output so far:\n${buf.slice(0, 500)}` : '\n(no output received from SSH process)'
         onError(
-          `Tunnel URL not found after ${URL_TIMEOUT_MS / 1000}s — is ${argv[0]} installed and reachable?${preview}`
+          `Tunnel URL not found after ${URL_TIMEOUT_MS / 1000}s — is ${argv[0]} installed and reachable?${preview}`,
         )
         this.stop()
       }

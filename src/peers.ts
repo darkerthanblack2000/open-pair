@@ -7,9 +7,9 @@
 import * as vscode from 'vscode'
 
 export interface PeerInfo {
-  peerId    : number
-  name      : string
-  role      ?: 'rw' | 'ro'
+  peerId: number
+  name: string
+  role?: 'rw' | 'ro'
   activePath?: string
 }
 
@@ -29,7 +29,9 @@ export class PeerTracker {
     return this.map.get(peerId)
   }
 
-  get count(): number { return this.map.size }
+  get count(): number {
+    return this.map.size
+  }
 
   getAll(): PeerInfo[] {
     return [...this.map.values()].sort((a, b) => a.peerId - b.peerId)
@@ -45,12 +47,12 @@ export class PeerTracker {
       vscode.window.showInformationMessage('Open Pair: no other peers connected')
       return
     }
-    const items = peers.map(p => {
+    const items = peers.map((p) => {
       const roleLabel = p.role ? ` [${p.role}]` : ''
       return {
-        label      : `$(person) ${p.name}${roleLabel}`,
+        label: `$(person) ${p.name}${roleLabel}`,
         description: p.peerId === 0 ? 'host' : `peer ${p.peerId}`,
-        detail     : p.activePath ? `Viewing: ${p.activePath}` : undefined,
+        detail: p.activePath ? `Viewing: ${p.activePath}` : undefined,
       }
     })
     await vscode.window.showQuickPick(items, {

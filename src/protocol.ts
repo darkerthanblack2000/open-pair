@@ -11,7 +11,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
 
 const NONCE_LEN = 12
-const TAG_LEN   = 16
+const TAG_LEN = 16
 
 export const PROTOCOL_VERSION = 3
 
@@ -22,10 +22,10 @@ export function encode(msg: LiveShareMessage, key?: Buffer): Buffer {
   if (!key) {
     return json
   }
-  const nonce  = randomBytes(NONCE_LEN)
+  const nonce = randomBytes(NONCE_LEN)
   const cipher = createCipheriv('aes-256-gcm', key, nonce)
-  const ct     = Buffer.concat([cipher.update(json), cipher.final()])
-  const tag    = cipher.getAuthTag()
+  const ct = Buffer.concat([cipher.update(json), cipher.final()])
+  const tag = cipher.getAuthTag()
   return Buffer.concat([nonce, ct, tag])
 }
 
@@ -35,9 +35,9 @@ export function decode(payload: Buffer, key?: Buffer): LiveShareMessage | null {
     if (payload.length < NONCE_LEN + TAG_LEN) {
       return null
     }
-    const nonce  = payload.subarray(0, NONCE_LEN)
-    const tag    = payload.subarray(payload.length - TAG_LEN)
-    const ct     = payload.subarray(NONCE_LEN, payload.length - TAG_LEN)
+    const nonce = payload.subarray(0, NONCE_LEN)
+    const tag = payload.subarray(payload.length - TAG_LEN)
+    const ct = payload.subarray(NONCE_LEN, payload.length - TAG_LEN)
     try {
       const decipher = createDecipheriv('aes-256-gcm', key, nonce)
       decipher.setAuthTag(tag)

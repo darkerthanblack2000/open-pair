@@ -26,8 +26,8 @@ export interface Transport extends EventEmitter {
 
 export function createWsTransport(host: string, port: number): Transport {
   const emitter = new EventEmitter() as Transport
-  const url     = `ws://${host}:${port}`
-  const ws      = new WebSocket(url)
+  const url = `ws://${host}:${port}`
+  const ws = new WebSocket(url)
 
   ws.binaryType = 'nodebuffer'
 
@@ -49,7 +49,10 @@ export function createWsTransport(host: string, port: number): Transport {
   })
 
   ws.on('close', (code: number, reason: Buffer) => {
-    if (pingTimer) { clearInterval(pingTimer); pingTimer = undefined }
+    if (pingTimer) {
+      clearInterval(pingTimer)
+      pingTimer = undefined
+    }
     emitter.emit('close', code, reason.toString())
   })
 
@@ -64,7 +67,10 @@ export function createWsTransport(host: string, port: number): Transport {
   }
 
   emitter.close = () => {
-    if (pingTimer) { clearInterval(pingTimer); pingTimer = undefined }
+    if (pingTimer) {
+      clearInterval(pingTimer)
+      pingTimer = undefined
+    }
     if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
       ws.close()
     }
@@ -77,8 +83,8 @@ export function createWsTransport(host: string, port: number): Transport {
 
 export function createTcpTransport(host: string, port: number): Transport {
   const emitter = new EventEmitter() as Transport
-  const socket  = new net.Socket()
-  let   buf     = Buffer.alloc(0)
+  const socket = new net.Socket()
+  let buf = Buffer.alloc(0)
 
   socket.connect(port, host, () => {
     emitter.emit('open')

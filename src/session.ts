@@ -29,8 +29,8 @@ export interface ParsedUrl {
 
 export function parseShareUrl(raw: string): ParsedUrl {
   const keyMatch = raw.match(/#key=([A-Za-z0-9_-]+)/)
-  const key      = keyMatch ? Buffer.from(keyMatch[1], 'base64url') : undefined
-  const url      = raw.replace(/#.*$/, '').trim()
+  const key = keyMatch ? Buffer.from(keyMatch[1], 'base64url') : undefined
+  const url = raw.replace(/#.*$/, '').trim()
 
   // §1.3: Punch P2P UDP transport — signaling flow not supported yet
   if (url.startsWith('punch+')) {
@@ -38,7 +38,7 @@ export function parseShareUrl(raw: string): ParsedUrl {
   }
 
   if (url.startsWith('tcp://')) {
-    const rest  = url.slice(6)
+    const rest = url.slice(6)
     const colon = rest.lastIndexOf(':')
     return {
       host: rest.slice(0, colon),
@@ -48,7 +48,7 @@ export function parseShareUrl(raw: string): ParsedUrl {
     }
   }
 
-  const clean    = url.replace(/^https?:\/\//, '')
+  const clean = url.replace(/^https?:\/\//, '')
   const colonIdx = clean.lastIndexOf(':')
   if (colonIdx > 0 && /^\d+$/.test(clean.slice(colonIdx + 1))) {
     return {
@@ -66,23 +66,27 @@ export type SessionLogger = (msg: string) => void
 
 export class Session {
   // Filled after hello
-  sid      : string | undefined
-  peerId   : number | undefined
-  role     : SessionRole | undefined
-  hostRequiredCaps : string[] = []
-  hostOptionalCaps : string[] = []
+  sid: string | undefined
+  peerId: number | undefined
+  role: SessionRole | undefined
+  hostRequiredCaps: string[] = []
+  hostOptionalCaps: string[] = []
 
-  private transport        : Transport | undefined
-  private key              : Buffer | undefined
-  private handlers         : MessageHandler[] = []
-  private _connected       = false
+  private transport: Transport | undefined
+  private key: Buffer | undefined
+  private handlers: MessageHandler[] = []
+  private _connected = false
   private intentionalClose = false
-  private parsed           : ParsedUrl | undefined
-  private displayName      : string = ''
-  private log              : SessionLogger = () => {}
+  private parsed: ParsedUrl | undefined
+  private displayName: string = ''
+  private log: SessionLogger = () => {}
 
-  get connected(): boolean { return this._connected }
-  get transportMode(): 'ws' | 'tcp' | 'punch' | undefined { return this.parsed?.mode }
+  get connected(): boolean {
+    return this._connected
+  }
+  get transportMode(): 'ws' | 'tcp' | 'punch' | undefined {
+    return this.parsed?.mode
+  }
 
   setLogger(logger: SessionLogger): void {
     this.log = logger
@@ -94,29 +98,30 @@ export class Session {
 
   connect(parsed: ParsedUrl, displayName: string): void {
     if (parsed.mode === 'punch') {
-      vscode.window.showErrorMessage(
-        'Open Pair: Punch (P2P UDP) transport is not supported — use a WS or TCP URL'
-      )
+      vscode.window.showErrorMessage('Open Pair: Punch (P2P UDP) transport is not supported — use a WS or TCP URL')
       return
     }
     if (!parsed.key) {
       vscode.window.showErrorMessage(
-        'Open Pair: no encryption key found in URL (#key=…) — refusing to connect without encryption'
+        'Open Pair: no encryption key found in URL (#key=…) — refusing to connect without encryption',
       )
       return
     }
-    this.parsed           = parsed
-    this.displayName      = displayName
-    this.key              = parsed.key
+    this.parsed = parsed
+    this.displayName = displayName
+    this.key = parsed.key
     this.intentionalClose = false
     this.doConnect()
   }
 
   private doConnect(): void {
-    if (!this.parsed) { return }
-    const t = this.parsed.mode === 'tcp'
-      ? createTcpTransport(this.parsed.host, this.parsed.port)
-      : createWsTransport(this.parsed.host, this.parsed.port)
+    if (!this.parsed) {
+      return
+    }
+    const t =
+      this.parsed.mode === 'tcp'
+        ? createTcpTransport(this.parsed.host, this.parsed.port)
+        : createWsTransport(this.parsed.host, this.parsed.port)
     this.transport = t
 
     t.on('open', () => {
@@ -137,21 +142,21 @@ export class Session {
         const remoteVersion = msg['protocol_version'] as number | undefined
         if (remoteVersion !== undefined && remoteVersion !== PROTOCOL_VERSION) {
           vscode.window.showWarningMessage(
-            `Open Pair: protocol version mismatch (host=${remoteVersion}, ours=${PROTOCOL_VERSION}) — behaviour may be undefined`
+            `Open Pair: protocol version mismatch (host=${remoteVersion}, ours=${PROTOCOL_VERSION}) — behaviour may be undefined`,
           )
         }
-        const requiredCaps  = (msg['required_caps'] as string[] | undefined) ?? []
-        const unsupported   = requiredCaps.filter(c => !SUPPORTED_CAPS.has(c))
+        const requiredCaps = (msg['required_caps'] as string[] | undefined) ?? []
+        const unsupported = requiredCaps.filter((c) => !SUPPORTED_CAPS.has(c))
         if (unsupported.length > 0) {
           vscode.window.showErrorMessage(
-            `Open Pair: host requires unsupported capabilities: ${unsupported.join(', ')} — disconnecting`
+            `Open Pair: host requires unsupported capabilities: ${unsupported.join(', ')} — disconnecting`,
           )
           this.dispose()
           return
         }
-        this.sid              = msg['sid']    as string
-        this.peerId           = msg['peer_id'] as number
-        this.role             = (msg['role'] as SessionRole) ?? 'rw'
+        this.sid = msg['sid'] as string
+        this.peerId = msg['peer_id'] as number
+        this.role = (msg['role'] as SessionRole) ?? 'rw'
         this.hostRequiredCaps = requiredCaps
         this.hostOptionalCaps = (msg['optional_caps'] as string[] | undefined) ?? []
         this._connected = true
@@ -167,28 +172,29 @@ export class Session {
       }
 
       if (msg.t === 'error') {
-        const code    = (msg['code']    as string | undefined) ?? 'unknown'
+        const code = (msg['code'] as string | undefined) ?? 'unknown'
         const message = (msg['message'] as string | undefined) ?? ''
         vscode.window.showErrorMessage(`Open Pair: host error [${code}] ${message}`)
         return
       }
 
-      for (const h of this.handlers) { h(msg) }
+      for (const h of this.handlers) {
+        h(msg)
+      }
     })
 
     t.on('close', (code?: number, reason?: string) => {
       const detail = code !== undefined ? ` (code ${code}${reason ? ': ' + reason : ''})` : ''
       this.log(`transport closed${detail}`)
       this._connected = false
-      this.transport  = undefined
+      this.transport = undefined
 
       // §7.3: session URLs are single-use — do not auto-reconnect after disconnect
       if (!this.intentionalClose) {
-        vscode.window.showErrorMessage(
-          `Open Pair: disconnected${detail} — rejoin manually with a new URL`,
-          'Dismiss'
-        )
-        for (const h of this.handlers) { h({ t: 'bye', peer: 0 }) }
+        vscode.window.showErrorMessage(`Open Pair: disconnected${detail} — rejoin manually with a new URL`, 'Dismiss')
+        for (const h of this.handlers) {
+          h({ t: 'bye', peer: 0 })
+        }
       }
     })
 
@@ -200,28 +206,34 @@ export class Session {
   }
 
   send(msg: LiveShareMessage): void {
-    if (!this.transport) { return }
+    if (!this.transport) {
+      return
+    }
     try {
       const payload = encode(msg, this.key)
       this.transport.send(payload)
     } catch (err) {
-      console.error('live-share: encode error', err)
+      this.log?.(`encode error: ${err}`)
     }
   }
 
   dispose(): void {
     this.intentionalClose = true
     if (this._connected) {
-      try { this.send({ t: 'bye' }) } catch { /* ignore */ }
+      try {
+        this.send({ t: 'bye' })
+      } catch {
+        /* ignore */
+      }
     }
     this.transport?.close()
-    this.transport  = undefined
+    this.transport = undefined
     this._connected = false
-    this.sid        = undefined
-    this.peerId     = undefined
-    this.role       = undefined
+    this.sid = undefined
+    this.peerId = undefined
+    this.role = undefined
     this.hostRequiredCaps = []
     this.hostOptionalCaps = []
-    this.handlers   = []
+    this.handlers = []
   }
 }

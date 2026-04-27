@@ -2,7 +2,7 @@
   "name": "open-pair",
   "displayName": "Open Pair",
   "description": "VS Code extension for real-time collaborative editing, compatible with live-share.nvim. Host or join sessions with E2E encryption, remote cursors, follow mode, and shared terminal — no Microsoft account required.",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "publisher": "darkerthanblack2000",
   "license": "MIT",
   "repository": {

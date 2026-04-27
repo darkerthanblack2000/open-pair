@@ -306,39 +306,38 @@ export class Host {
     const detectTimer = setTimeout(() => {
       if (detected) return
       detected = true
-      this.log(`peer ${peerId}: no data after 600ms — assuming raw TCP mode`)
+      this.log(`peer ${peerId}: no data after 1000ms — assuming raw TCP mode`)
       this.pending.set(peerId, { socket, mode: 'tcp', buf: Buffer.alloc(0) })
       void this.promptApproval(peerId)
-    }, 600)
+    }, 1000)
 
     socket.on('data', (chunk: Buffer) => {
-      buf = Buffer.concat([buf, chunk])
-
-      if (!detected) {
-        if (buf.length < 4) return // need at least 4 bytes to detect mode
-        detected = true
-        clearTimeout(detectTimer)
-
-        const prefix = buf.subarray(0, 4).toString('ascii')
-        this.log(
-          `peer ${peerId}: first 4 bytes = ${JSON.stringify(prefix)} (${buf.length} bytes total) — ${prefix === 'GET ' ? 'WebSocket mode' : 'raw TCP mode'}`,
-        )
-
-        if (prefix === 'GET ') {
-          // WebSocket mode
-          this.handleWsHandshake(peerId, socket, buf)
-        } else {
-          // Raw TCP mode — data arrived before the timer fired
-          this.pending.set(peerId, { socket, mode: 'tcp', buf: Buffer.alloc(0) })
-          void this.promptApproval(peerId)
-          this.handleTcpData(peerId, buf)
-          buf = Buffer.alloc(0)
-        }
+      if (detected) {
+        // Data arrived after detection but before listeners were re-routed.
+        // Append to the appropriate buffer so it's not lost.
+        const entry = this.pending.get(peerId) ?? this.clients.get(peerId)
+        if (entry) entry.buf = Buffer.concat([entry.buf, chunk])
         return
       }
 
-      // After detection, data continues in mode-specific handlers
-      // (ws and tcp handlers update buf directly via closure or re-route)
+      buf = Buffer.concat([buf, chunk])
+      if (buf.length < 4) return // need at least 4 bytes to detect mode
+
+      detected = true
+      clearTimeout(detectTimer)
+
+      const prefix = buf.subarray(0, 4).toString('ascii')
+      this.log(
+        `peer ${peerId}: first 4 bytes = ${JSON.stringify(prefix)} (${buf.length} bytes total) — ${prefix === 'GET ' ? 'WebSocket mode' : 'raw TCP mode'}`,
+      )
+
+      if (prefix === 'GET ') {
+        this.handleWsHandshake(peerId, socket, buf)
+      } else {
+        this.pending.set(peerId, { socket, mode: 'tcp', buf })
+        void this.promptApproval(peerId)
+        this.handleTcpData(peerId, Buffer.alloc(0))
+      }
     })
 
     socket.on('error', (err: Error) => {
@@ -349,9 +348,13 @@ export class Host {
 
     socket.on('close', () => {
       clearTimeout(detectTimer)
+      const entry = this.clients.get(peerId) ?? this.pending.get(peerId)
+      const name = entry?.name ?? `peer ${peerId}`
       const wasClient = this.clients.has(peerId)
-      const name = this.clients.get(peerId)?.name ?? ''
+
+      this.log(`peer ${peerId}: connection closed (wasClient=${wasClient})`)
       this.cleanupPeer(peerId)
+
       if (wasClient) {
         this.broadcast({ t: 'bye', peer: peerId, name }, peerId)
         this.onPeerLeave(peerId, name)
@@ -371,52 +374,32 @@ export class Host {
       if (end === -1) return // need more data
 
       done = true
-
       const headers = hsBuf.subarray(0, end).toString('utf8')
       const rest = hsBuf.subarray(end + 4)
 
       const keyMatch = headers.match(/[Ss]ec-[Ww]eb[Ss]ocket-[Kk]ey:\s*(\S+)/i)
       if (!keyMatch) {
-        const preview = headers.slice(0, 400)
-        this.log(`peer ${peerId}: WS handshake failed — Sec-WebSocket-Key not found\nHeaders:\n${preview}`)
-        vscode.window.showErrorMessage(
-          `Open Pair: WS handshake failed (Sec-WebSocket-Key missing) — check "Open Pair — Debug Info" output for headers`,
-        )
-        socket.write('HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n')
-        setTimeout(() => {
-          if (!socket.destroyed) socket.destroy()
-        }, 200)
+        this.log(`peer ${peerId}: WS handshake failed — Sec-WebSocket-Key not found`)
+        socket.write('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n')
+        setTimeout(() => socket.destroy(), 100)
         return
       }
 
       const accept = wsAccept(keyMatch[1].trim())
-      this.log(`peer ${peerId}: WS handshake OK (key=${keyMatch[1].trim().slice(0, 8)}…) — sending 101`)
-      const response = [
-        'HTTP/1.1 101 Switching Protocols',
-        'Upgrade: websocket',
-        'Connection: Upgrade',
-        `Sec-WebSocket-Accept: ${accept}`,
-        '',
-        '',
-      ].join('\r\n')
-      socket.write(response)
+      this.log(`peer ${peerId}: WS handshake OK — sending 101`)
+      socket.write(
+        `HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`,
+      )
 
-      // Switch to WS frame mode
       this.pending.set(peerId, { socket, mode: 'ws', buf: rest })
       void this.promptApproval(peerId)
 
-      // Re-route future data to WS handler
       socket.removeAllListeners('data')
       socket.on('data', (chunk: Buffer) => this.handleWsData(peerId, chunk))
       if (rest.length > 0) this.handleWsData(peerId, Buffer.alloc(0))
     }
 
     tryHandshake()
-    // Only install the "waiting for more headers" listener if the handshake headers
-    // weren't already complete in the initial buffer. If tryHandshake() already ran
-    // to completion above, it has already installed the correct handleWsData listener;
-    // overwriting it here with a tryHandshake-listener would cause all subsequent
-    // WS frames to be misinterpreted as HTTP headers and silently discarded.
     if (!done) {
       socket.removeAllListeners('data')
       socket.on('data', (chunk: Buffer) => {
@@ -427,7 +410,7 @@ export class Host {
   }
 
   private handleWsData(peerId: number, chunk: Buffer): void {
-    const entry = this.pending.get(peerId) ?? this.clients.get(peerId)
+    const entry = this.clients.get(peerId) ?? this.pending.get(peerId)
     if (!entry) return
 
     entry.buf = Buffer.concat([entry.buf, chunk])
@@ -441,7 +424,7 @@ export class Host {
   }
 
   private handleTcpData(peerId: number, chunk: Buffer): void {
-    const entry = this.pending.get(peerId) ?? this.clients.get(peerId)
+    const entry = this.clients.get(peerId) ?? this.pending.get(peerId)
     if (!entry) return
 
     entry.buf = Buffer.concat([entry.buf, chunk])
@@ -457,15 +440,13 @@ export class Host {
   // ── Approval flow ─────────────────────────────────────────────────────────
 
   private async promptApproval(peerId: number): Promise<void> {
-    // Re-route data while waiting for approval
     const p = this.pending.get(peerId)
     if (!p) return
-    const { socket, mode } = p
 
-    this.log(`peer ${peerId}: showing approval dialog (mode=${mode})`)
-    socket.removeAllListeners('data')
-    socket.on('data', (chunk: Buffer) => {
-      if (mode === 'ws') this.handleWsData(peerId, chunk)
+    this.log(`peer ${peerId}: showing approval dialog (mode=${p.mode})`)
+    p.socket.removeAllListeners('data')
+    p.socket.on('data', (chunk: Buffer) => {
+      if (p.mode === 'ws') this.handleWsData(peerId, chunk)
       else this.handleTcpData(peerId, chunk)
     })
 

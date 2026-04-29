@@ -12,6 +12,16 @@ Real-time collaborative editing between VS Code and Neovim (or VS Code and VS Co
 | VS Code / compatible editor | Neovim ([live-share.nvim](https://github.com/azratul/live-share.nvim)) | Full support |
 | Neovim ([live-share.nvim](https://github.com/azratul/live-share.nvim)) | VS Code / compatible editor | Full support |
 
+## Demo
+
+*Gifs used with permission from [azratul](https://github.com/azratul), maintainer of [live-share.nvim](https://github.com/azratul/live-share.nvim).*
+
+### Neovim as Host, VS Code as Guest
+![Neovim Host - VS Code Guest](https://raw.githubusercontent.com/azratul/azratul/main/nvim-vscode.gif)
+
+### VS Code as Host, Neovim as Guest
+![VS Code Host - Neovim Guest](https://raw.githubusercontent.com/azratul/azratul/main/vscode-nvim.gif)
+
 ## Features
 
 | Feature | Status |

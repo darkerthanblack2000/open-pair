@@ -2,6 +2,15 @@
 
 All notable changes to Open Pair are documented here.
 
+## [0.2.2] — 2026-07-27
+
+### Fixed
+- **"Open Pair: Join Session" missing from the Command Palette.** Command IDs were declared under the `liveshare.*` namespace, which belongs to Microsoft Live Share (`ms-vsliveshare.vsliveshare`). `liveshare.join` and `liveshare.follow` were exact ID collisions, so with both extensions installed VS Code resolved those palette entries to Live Share's titles and Open Pair's entries disappeared. All commands are now under `openPair.*`.
+- Packaged `.vsix` no longer ships internal development notes (`TODO.md`, `CLAUDE.md`, `GEMINI.md`, `*.txt`) or lint/format config.
+
+### Changed
+- **Breaking:** command IDs renamed `liveshare.*` → `openPair.*`. Custom keybindings, tasks, or scripts referencing the old IDs must be updated.
+
 ## [0.1.9] — 2026-04-27
 
 ### Added

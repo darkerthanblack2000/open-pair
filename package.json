@@ -37,31 +37,31 @@
   "contributes": {
     "commands": [
       {
-        "command": "liveshare.join",
+        "command": "openPair.join",
         "title": "Open Pair: Join Session"
       },
       {
-        "command": "liveshare.startServer",
+        "command": "openPair.startServer",
         "title": "Open Pair: Start Hosting"
       },
       {
-        "command": "liveshare.stop",
+        "command": "openPair.stop",
         "title": "Open Pair: Stop Session"
       },
       {
-        "command": "liveshare.follow",
+        "command": "openPair.follow",
         "title": "Open Pair: Toggle Follow Mode"
       },
       {
-        "command": "liveshare.openWorkspace",
+        "command": "openPair.openWorkspace",
         "title": "Open Pair: Open Workspace File"
       },
       {
-        "command": "liveshare.showPeers",
+        "command": "openPair.showPeers",
         "title": "Open Pair: Show Peers"
       },
       {
-        "command": "liveshare.debugInfo",
+        "command": "openPair.debugInfo",
         "title": "Open Pair: Debug Info"
       }
     ]

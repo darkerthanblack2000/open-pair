@@ -1,0 +1,104 @@
+name: Release
+
+# Publishes to the VS Code Marketplace (and Open VSX, if configured) whenever a
+# GitHub Release is published. Draft releases do not trigger this — only the
+# "Publish release" action does.
+on:
+  release:
+    types: [published]
+  # Manual escape hatch: re-run a publish without cutting a new release.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to publish (e.g. v0.2.2)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      OVSX_PAT: ${{ secrets.OVSX_PAT }}
+      # Optional. Requires an Azure DevOps organization, which Microsoft now
+      # gates behind a linked Azure subscription. Without it the Marketplace
+      # step is skipped and the .vsix is uploaded by hand instead.
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # A tag that disagrees with package.json publishes the wrong version to the
+      # Marketplace, and Marketplace versions cannot be reused or deleted. Fail
+      # before anything is uploaded.
+      - name: Verify tag matches package.json version
+        run: |
+          TAG_VERSION="${TAG#v}"
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          echo "tag=$TAG_VERSION package.json=$PKG_VERSION"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag $TAG_VERSION does not match package.json version $PKG_VERSION"
+            exit 1
+          fi
+
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run format:check
+
+      - name: Package
+        run: npx vsce package -o "open-pair-${TAG}.vsix"
+
+      # Guard against shipping internal notes again (v0.2.1 leaked TODO.md,
+      # CLAUDE.md, GEMINI.md and *.txt into the published .vsix).
+      - name: Verify package contents
+        run: |
+          LEAKED=$(unzip -Z1 "open-pair-${TAG}.vsix" \
+            | grep -iE 'extension/(TODO|CLAUDE|GEMINI|AGENTS|CONTRIBUTING|SECURITY)\.md|extension/.*\.txt' \
+            | grep -v 'extension/LICENSE.txt' || true)
+          if [ -n "$LEAKED" ]; then
+            echo "::error::Internal files present in the .vsix:"
+            echo "$LEAKED"
+            exit 1
+          fi
+          echo "Package contents:"
+          unzip -Z1 "open-pair-${TAG}.vsix"
+
+      - name: Publish to VS Code Marketplace
+        if: env.VSCE_PAT != ''
+        run: npx vsce publish --packagePath "open-pair-${TAG}.vsix"
+
+      - name: Marketplace upload reminder
+        if: env.VSCE_PAT == ''
+        run: |
+          {
+            echo "### VS Code Marketplace — manual step required"
+            echo ""
+            echo "No \`VSCE_PAT\` secret is configured, so this release was **not**"
+            echo "pushed to the VS Code Marketplace automatically."
+            echo ""
+            echo "1. Download \`open-pair-${TAG}.vsix\` from the release assets below."
+            echo "2. Upload it at <https://marketplace.visualstudio.com/manage/publishers/darkerthanblack2000>"
+            echo "   (Open Pair → ⋮ → Update)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish to Open VSX
+        if: env.OVSX_PAT != ''
+        run: npx ovsx publish "open-pair-${TAG}.vsix" -p "$OVSX_PAT"
+
+      - name: Attach .vsix to the GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: open-pair-${{ env.TAG }}.vsix

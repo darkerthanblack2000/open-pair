@@ -2,13 +2,18 @@
  * extension.ts — VS Code extension entry point.
  *
  * Commands:
- *   liveshare.join           Join a Neovim (or VS Code) host as a guest
- *   liveshare.startServer    Start a VS Code host session
- *   liveshare.stop           Stop any active session
- *   liveshare.follow         Choose a peer to follow via QuickPick (guest only)
- *   liveshare.openWorkspace  File picker over the remote workspace (guest only)
- *   liveshare.showPeers      Show peers; selecting one activates follow (guest only)
- *   liveshare.debugInfo      Dump diagnostic info to an output channel
+ *   openPair.join           Join a Neovim (or VS Code) host as a guest
+ *   openPair.startServer    Start a VS Code host session
+ *   openPair.stop           Stop any active session
+ *   openPair.follow         Choose a peer to follow via QuickPick (guest only)
+ *   openPair.openWorkspace  File picker over the remote workspace (guest only)
+ *   openPair.showPeers      Show peers; selecting one activates follow (guest only)
+ *   openPair.debugInfo      Dump diagnostic info to an output channel
+ *
+ * NOTE: these IDs must not live under the `liveshare.*` namespace — that belongs
+ * to Microsoft Live Share (ms-vsliveshare.vsliveshare), and `liveshare.join` /
+ * `liveshare.follow` collided with it, which hid our Command Palette entries
+ * whenever both extensions were installed.
  */
 
 import * as vscode from 'vscode'
@@ -52,17 +57,17 @@ const sharedTerminals = new Map<string, { terminal: vscode.Terminal; writeEmitte
 export function activate(ctx: vscode.ExtensionContext): void {
   extCtx = ctx
   statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100)
-  statusBar.command = 'liveshare.stop'
+  statusBar.command = 'openPair.stop'
   ctx.subscriptions.push(statusBar)
 
   ctx.subscriptions.push(
-    vscode.commands.registerCommand('liveshare.join', cmdJoin),
-    vscode.commands.registerCommand('liveshare.startServer', cmdStartServer),
-    vscode.commands.registerCommand('liveshare.stop', cmdStop),
-    vscode.commands.registerCommand('liveshare.follow', cmdFollow),
-    vscode.commands.registerCommand('liveshare.openWorkspace', cmdOpenWorkspace),
-    vscode.commands.registerCommand('liveshare.showPeers', cmdShowPeers),
-    vscode.commands.registerCommand('liveshare.debugInfo', cmdDebugInfo),
+    vscode.commands.registerCommand('openPair.join', cmdJoin),
+    vscode.commands.registerCommand('openPair.startServer', cmdStartServer),
+    vscode.commands.registerCommand('openPair.stop', cmdStop),
+    vscode.commands.registerCommand('openPair.follow', cmdFollow),
+    vscode.commands.registerCommand('openPair.openWorkspace', cmdOpenWorkspace),
+    vscode.commands.registerCommand('openPair.showPeers', cmdShowPeers),
+    vscode.commands.registerCommand('openPair.debugInfo', cmdDebugInfo),
   )
 
   // Guest: emit focus when switching editors
@@ -781,7 +786,7 @@ function refreshStatus(): void {
     statusBar.hide()
     return
   }
-  statusBar.command = 'liveshare.stop'
+  statusBar.command = 'openPair.stop'
   statusBar.show()
 
   if (activeRole === 'guest') {

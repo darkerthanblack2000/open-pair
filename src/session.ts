@@ -96,22 +96,27 @@ export class Session {
     this.handlers.push(handler)
   }
 
-  connect(parsed: ParsedUrl, displayName: string): void {
+  /**
+   * Returns false if the URL was rejected before any socket opened — nothing
+   * will ever fire on this Session, so the caller must discard it.
+   */
+  connect(parsed: ParsedUrl, displayName: string): boolean {
     if (parsed.mode === 'punch') {
       vscode.window.showErrorMessage('Open Pair: Punch (P2P UDP) transport is not supported — use a WS or TCP URL')
-      return
+      return false
     }
     if (!parsed.key) {
       vscode.window.showErrorMessage(
         'Open Pair: no encryption key found in URL (#key=…) — refusing to connect without encryption',
       )
-      return
+      return false
     }
     this.parsed = parsed
     this.displayName = displayName
     this.key = parsed.key
     this.intentionalClose = false
     this.doConnect()
+    return true
   }
 
   private doConnect(): void {

@@ -33,6 +33,10 @@ let activeRole: 'guest' | 'host' | undefined
 let session: Session | undefined
 let docs: DocumentRegistry | undefined
 let cursors: CursorManager | undefined
+// One provider per scheme: leaking this registration breaks every later join.
+let fsProviderReg: vscode.Disposable | undefined
+// Aborts a join that never completes the handshake.
+let joinTimer: ReturnType<typeof setTimeout> | undefined
 
 // Host-mode state
 let host: Host | undefined
@@ -51,6 +55,10 @@ let debugChannel: vscode.OutputChannel | undefined
 
 // Shared terminals (guest mode)
 const sharedTerminals = new Map<string, { terminal: vscode.Terminal; writeEmitter: vscode.EventEmitter<string> }>()
+
+// Deadline from connect to `hello`. A dead port hangs for the OS timeout and
+// `ws` sets no deadline, leaving the session half-open and blocking later joins.
+const JOIN_TIMEOUT_MS = 15_000
 
 // ── Activate ──────────────────────────────────────────────────────────────────
 
@@ -102,18 +110,24 @@ export function deactivate(): void {
 // ── Teardown ──────────────────────────────────────────────────────────────────
 
 function teardown(): void {
+  if (joinTimer) {
+    clearTimeout(joinTimer)
+    joinTimer = undefined
+  }
   host?.stop()
   tunnel?.stop()
   session?.dispose()
   docs?.dispose()
   cursors?.clearAll()
   hostCursors?.clearAll()
+  fsProviderReg?.dispose()
   host = undefined
   tunnel = undefined
   session = undefined
   docs = undefined
   cursors = undefined
   hostCursors = undefined
+  fsProviderReg = undefined
   activeRole = undefined
   followedPeer = undefined
   workspaceFiles = []
@@ -169,11 +183,11 @@ async function cmdJoin(): Promise<void> {
     `join started — transport=${parsed.mode} host=${parsed.host}:${parsed.port} key=${parsed.key ? 'present' : 'MISSING'}`,
   )
 
-  const providerReg = vscode.workspace.registerFileSystemProvider(SCHEME, docs, {
+  // Owned by teardown(), not by extCtx.subscriptions — see fsProviderReg.
+  fsProviderReg = vscode.workspace.registerFileSystemProvider(SCHEME, docs, {
     isCaseSensitive: true,
     isReadonly: false,
   })
-  extCtx.subscriptions.push(providerReg)
 
   activeRole = 'guest'
   refreshStatus()
@@ -190,9 +204,39 @@ async function cmdJoin(): Promise<void> {
   })
 
   session.onMessage((msg) => {
+    if (msg.t === 'hello' && joinTimer) {
+      clearTimeout(joinTimer)
+      joinTimer = undefined
+    }
     void handleGuestMessage(msg)
   })
-  session.connect(parsed, displayName)
+
+  // Arm before connecting: a hung TCP connect never reaches any transport event.
+  joinTimer = setTimeout(() => {
+    joinTimer = undefined
+    if (session?.connected) return
+    sessionLogger(`no hello after ${JOIN_TIMEOUT_MS / 1000}s — aborting join`)
+    vscode.window.showErrorMessage(
+      `Open Pair: timed out after ${JOIN_TIMEOUT_MS / 1000}s waiting for ${parsed.host}:${parsed.port} — ` +
+        'check that the URL is current and that the host is still sharing (see "Debug Info")',
+    )
+    teardown()
+  }, JOIN_TIMEOUT_MS)
+
+  let started = false
+  try {
+    started = session.connect(parsed, displayName)
+  } catch (err) {
+    sessionLogger(`connect threw — ${err instanceof Error ? err.message : String(err)}`)
+    vscode.window.showErrorMessage(
+      `Open Pair: could not open a connection to ${parsed.host}:${parsed.port} — ` +
+        `${err instanceof Error ? err.message : String(err)}`,
+    )
+  }
+  // connect() already explained the refusal; just don't leave state behind.
+  if (!started) {
+    teardown()
+  }
 }
 
 async function cmdStartServer(): Promise<void> {

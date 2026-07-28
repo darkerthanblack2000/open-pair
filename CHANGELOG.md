@@ -2,6 +2,12 @@
 
 All notable changes to Open Pair are documented here.
 
+## [Unreleased]
+
+### Fixed
+- **Only the first join per window worked.** The `liveshare://` filesystem provider was registered on every join but never unregistered, so the second attempt failed with "a filesystem provider for the scheme 'liveshare' is already registered" until VS Code was restarted. It is now released on session teardown.
+- **A join that never reached the host left the session stuck.** Connecting to an unreachable address hung with no deadline, and a URL rejected outright (missing `#key=`, `punch+`) left the session marked active — either way every later join was refused with "session already active". Joins now abort after 15 s with a clear error and reset cleanly.
+
 ## [0.2.2] — 2026-07-27
 
 ### Fixed

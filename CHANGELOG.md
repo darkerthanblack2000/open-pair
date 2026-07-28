@@ -2,7 +2,7 @@
 
 All notable changes to Open Pair are documented here.
 
-## [Unreleased]
+## [0.2.3] — 2026-07-28
 
 ### Fixed
 - **Joining through a tunnel never reached the host.** `https://` and `wss://` share URLs were dialled as plaintext `ws://` on port 80, so the connection hung or hit a redirect and the host was never asked to approve — every HTTP tunnel provider (serveo.net, localhost.run) serves these tunnels over TLS on 443. Such URLs now connect with `wss://` on 443, with certificate validation. Only sessions using an `https://`/`wss://` URL are affected; `tcp://`, bare `host:port`, and localhost are unchanged.

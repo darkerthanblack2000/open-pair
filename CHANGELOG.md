@@ -5,6 +5,7 @@ All notable changes to Open Pair are documented here.
 ## [Unreleased]
 
 ### Fixed
+- **Joining through a tunnel never reached the host.** `https://` and `wss://` share URLs were dialled as plaintext `ws://` on port 80, so the connection hung or hit a redirect and the host was never asked to approve — every HTTP tunnel provider (serveo.net, localhost.run) serves these tunnels over TLS on 443. Such URLs now connect with `wss://` on 443, with certificate validation. Only sessions using an `https://`/`wss://` URL are affected; `tcp://`, bare `host:port`, and localhost are unchanged.
 - **Only the first join per window worked.** The `liveshare://` filesystem provider was registered on every join but never unregistered, so the second attempt failed with "a filesystem provider for the scheme 'liveshare' is already registered" until VS Code was restarted. It is now released on session teardown.
 - **A join that never reached the host left the session stuck.** Connecting to an unreachable address hung with no deadline, and a URL rejected outright (missing `#key=`, `punch+`) left the session marked active — either way every later join was refused with "session already active". Joins now abort after 15 s with a clear error and reset cleanly.
 

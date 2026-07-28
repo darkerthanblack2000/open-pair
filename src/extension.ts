@@ -180,7 +180,8 @@ async function cmdJoin(): Promise<void> {
   }
   session.setLogger(sessionLogger)
   sessionLogger(
-    `join started — transport=${parsed.mode} host=${parsed.host}:${parsed.port} key=${parsed.key ? 'present' : 'MISSING'}`,
+    `join started — transport=${parsed.mode}${parsed.secure ? '+tls' : ''} ` +
+      `host=${parsed.host}:${parsed.port} key=${parsed.key ? 'present' : 'MISSING'}`,
   )
 
   // Owned by teardown(), not by extCtx.subscriptions — see fsProviderReg.

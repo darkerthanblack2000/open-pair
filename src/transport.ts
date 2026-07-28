@@ -9,7 +9,7 @@
  *   close(): void
  *
  * WebSocket mode:  client→server frames are masked (RFC 6455 §5.3).
- *                  Uses the `ws` npm package.
+ *                  Uses the `ws` npm package; `ws://` or `wss://` per `secure`.
  * Raw TCP mode:    each message is prefixed with a 4-byte little-endian length.
  */
 
@@ -24,9 +24,10 @@ export interface Transport extends EventEmitter {
 
 // ── WebSocket transport ──────────────────────────────────────────────────────
 
-export function createWsTransport(host: string, port: number): Transport {
+export function createWsTransport(host: string, port: number, secure: boolean): Transport {
   const emitter = new EventEmitter() as Transport
-  const url = `ws://${host}:${port}`
+  // `wss:` is required by every HTTP tunnel provider — see parseShareUrl.
+  const url = `${secure ? 'wss' : 'ws'}://${host}:${port}`
   const ws = new WebSocket(url)
 
   ws.binaryType = 'nodebuffer'

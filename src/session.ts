@@ -24,9 +24,17 @@ export interface ParsedUrl {
   host: string
   port: number
   key: Buffer | undefined
+  /** Wrap the WebSocket in TLS (`wss://`). Only ever set for `ws` mode. */
+  secure: boolean
   mode: 'ws' | 'tcp' | 'punch'
 }
 
+/**
+ * HTTP tunnel providers (serveo.net, localhost.run) terminate TLS at their edge
+ * and forward plaintext over the SSH channel, so an `https:` share URL means
+ * TLS on 443 for us while the host still sees a plain WebSocket. Dialing port 80
+ * instead — as we used to — hits a redirect or a dead port on every provider.
+ */
 export function parseShareUrl(raw: string): ParsedUrl {
   const keyMatch = raw.match(/#key=([A-Za-z0-9_-]+)/)
   const key = keyMatch ? Buffer.from(keyMatch[1], 'base64url') : undefined
@@ -34,7 +42,7 @@ export function parseShareUrl(raw: string): ParsedUrl {
 
   // §1.3: Punch P2P UDP transport — signaling flow not supported yet
   if (url.startsWith('punch+')) {
-    return { host: '', port: 0, key, mode: 'punch' }
+    return { host: '', port: 0, key, secure: false, mode: 'punch' }
   }
 
   if (url.startsWith('tcp://')) {
@@ -44,22 +52,28 @@ export function parseShareUrl(raw: string): ParsedUrl {
       host: rest.slice(0, colon),
       port: parseInt(rest.slice(colon + 1), 10),
       key,
+      secure: false,
       mode: 'tcp',
     }
   }
 
-  const clean = url.replace(/^https?:\/\//, '')
+  const scheme = url.match(/^([a-z][a-z0-9+.-]*):\/\//i)?.[1].toLowerCase()
+  const secure = scheme === 'https' || scheme === 'wss'
+  // Drop the scheme and any trailing path, which providers and users both add.
+  const clean = (scheme === undefined ? url : url.slice(scheme.length + 3)).replace(/\/.*$/, '')
+
   const colonIdx = clean.lastIndexOf(':')
   if (colonIdx > 0 && /^\d+$/.test(clean.slice(colonIdx + 1))) {
     return {
       host: clean.slice(0, colonIdx),
       port: parseInt(clean.slice(colonIdx + 1), 10),
       key,
+      secure,
       mode: 'ws',
     }
   }
 
-  return { host: clean, port: 80, key, mode: 'ws' }
+  return { host: clean, port: secure ? 443 : 80, key, secure, mode: 'ws' }
 }
 
 export type SessionLogger = (msg: string) => void
@@ -126,7 +140,7 @@ export class Session {
     const t =
       this.parsed.mode === 'tcp'
         ? createTcpTransport(this.parsed.host, this.parsed.port)
-        : createWsTransport(this.parsed.host, this.parsed.port)
+        : createWsTransport(this.parsed.host, this.parsed.port, this.parsed.secure)
     this.transport = t
 
     t.on('open', () => {

@@ -64,7 +64,24 @@
         "command": "openPair.debugInfo",
         "title": "Open Pair: Debug Info"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Open Pair",
+      "properties": {
+        "openPair.connectTimeout": {
+          "type": "number",
+          "default": 15,
+          "minimum": 1,
+          "markdownDescription": "Seconds to wait for the connection to the host to be established before giving up. Raise this on slow tunnels."
+        },
+        "openPair.approvalTimeout": {
+          "type": "number",
+          "default": 60,
+          "minimum": 1,
+          "markdownDescription": "Seconds to wait for the host to accept the join request, once connected. This covers someone answering a dialog, so it is deliberately generous."
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run bundle",

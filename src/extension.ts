@@ -56,9 +56,17 @@ let debugChannel: vscode.OutputChannel | undefined
 // Shared terminals (guest mode)
 const sharedTerminals = new Map<string, { terminal: vscode.Terminal; writeEmitter: vscode.EventEmitter<string> }>()
 
-// Deadline from connect to `hello`. A dead port hangs for the OS timeout and
-// `ws` sets no deadline, leaving the session half-open and blocking later joins.
-const JOIN_TIMEOUT_MS = 15_000
+// A join has two deadlines. Reaching the host is pure network, so it fails fast
+// and catches wrong addresses; waiting for approval involves a person clicking a
+// dialog, so it gets far more room. `ws` sets no deadline of its own, and without
+// these a half-open session blocks every later join.
+const DEFAULT_CONNECT_TIMEOUT_S = 15
+const DEFAULT_APPROVAL_TIMEOUT_S = 60
+
+function timeoutMs(key: 'connectTimeout' | 'approvalTimeout', fallback: number): number {
+  const s = vscode.workspace.getConfiguration('openPair').get<number>(key, fallback)
+  return (Number.isFinite(s) && s > 0 ? s : fallback) * 1000
+}
 
 // ── Activate ──────────────────────────────────────────────────────────────────
 
@@ -212,17 +220,46 @@ async function cmdJoin(): Promise<void> {
     void handleGuestMessage(msg)
   })
 
-  // Arm before connecting: a hung TCP connect never reaches any transport event.
-  joinTimer = setTimeout(() => {
+  const target = `${parsed.host}:${parsed.port}`
+  const abortJoin = (logMsg: string, userMsg: string): void => {
     joinTimer = undefined
-    if (session?.connected) return
-    sessionLogger(`no hello after ${JOIN_TIMEOUT_MS / 1000}s — aborting join`)
-    vscode.window.showErrorMessage(
-      `Open Pair: timed out after ${JOIN_TIMEOUT_MS / 1000}s waiting for ${parsed.host}:${parsed.port} — ` +
-        'check that the URL is current and that the host is still sharing (see "Debug Info")',
-    )
+    sessionLogger(logMsg)
+    vscode.window.showErrorMessage(userMsg)
     teardown()
-  }, JOIN_TIMEOUT_MS)
+  }
+
+  // Arm before connecting: a hung TCP connect never reaches any transport event.
+  const connectMs = timeoutMs('connectTimeout', DEFAULT_CONNECT_TIMEOUT_S)
+  const approvalMs = timeoutMs('approvalTimeout', DEFAULT_APPROVAL_TIMEOUT_S)
+  joinTimer = setTimeout(() => {
+    if (session?.connected) {
+      joinTimer = undefined
+      return
+    }
+    // Never reaching `open` means nothing completed a handshake there — a wrong
+    // address, not a host that stopped sharing.
+    if (!session?.transportOpen) {
+      abortJoin(
+        `no connection to ${target} after ${connectMs / 1000}s — aborting join`,
+        `Open Pair: could not establish a connection to ${target} within ${connectMs / 1000}s — ` +
+          'check the host and port are the ones the host is sharing (see "Debug Info")',
+      )
+      return
+    }
+    // Reachable, so now a person has to accept on the other end.
+    sessionLogger(`connected to ${target} — waiting up to ${approvalMs / 1000}s for the host to accept`)
+    joinTimer = setTimeout(() => {
+      if (session?.connected) {
+        joinTimer = undefined
+        return
+      }
+      abortJoin(
+        `connected to ${target} but no hello after ${approvalMs / 1000}s — aborting join`,
+        `Open Pair: connected to ${target}, but the host never accepted within ${approvalMs / 1000}s — ` +
+          'they may have declined or stopped sharing (see "Debug Info")',
+      )
+    }, approvalMs)
+  }, connectMs)
 
   let started = false
   try {

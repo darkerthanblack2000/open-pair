@@ -2,6 +2,17 @@
 
 All notable changes to Open Pair are documented here.
 
+## [0.2.4] — 2026-07-31
+
+### Added
+- `openPair.connectTimeout` (default 15 s) and `openPair.approvalTimeout` (default 60 s) settings.
+
+### Fixed
+- **Joins through a real tunnel could time out before the host could accept.** A single 15 s deadline covered both reaching the host and waiting for someone to answer the approval dialog. Measured against a live localhost.run tunnel, the connection alone took 13 s, leaving 2 s to accept. The two phases now have separate deadlines: 15 s to establish the connection, then 60 s for the host to accept.
+
+### Changed
+- A failed join now distinguishes "could not establish a connection" (nothing completed a handshake at that address — typically a wrong port) from "connected, but the host never accepted". Previously both reported "no hello", which pointed at the host when the address was often at fault.
+
 ## [0.2.3] — 2026-07-28
 
 ### Fixed

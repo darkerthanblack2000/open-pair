@@ -90,6 +90,7 @@ export class Session {
   private key: Buffer | undefined
   private handlers: MessageHandler[] = []
   private _connected = false
+  private _transportOpen = false
   private intentionalClose = false
   private parsed: ParsedUrl | undefined
   private displayName: string = ''
@@ -97,6 +98,10 @@ export class Session {
 
   get connected(): boolean {
     return this._connected
+  }
+  /** Socket (and WS handshake) is up, but `hello` may not have arrived yet. */
+  get transportOpen(): boolean {
+    return this._transportOpen
   }
   get transportMode(): 'ws' | 'tcp' | 'punch' | undefined {
     return this.parsed?.mode
@@ -144,6 +149,7 @@ export class Session {
     this.transport = t
 
     t.on('open', () => {
+      this._transportOpen = true
       this.log(`transport open (${this.parsed?.mode ?? '?'}) → sending connect`)
       // §8: send connect as first protocol message after transport is up
       this.send({ t: 'connect' })
@@ -206,6 +212,7 @@ export class Session {
       const detail = code !== undefined ? ` (code ${code}${reason ? ': ' + reason : ''})` : ''
       this.log(`transport closed${detail}`)
       this._connected = false
+      this._transportOpen = false
       this.transport = undefined
 
       // §7.3: session URLs are single-use — do not auto-reconnect after disconnect
@@ -248,6 +255,7 @@ export class Session {
     this.transport?.close()
     this.transport = undefined
     this._connected = false
+    this._transportOpen = false
     this.sid = undefined
     this.peerId = undefined
     this.role = undefined

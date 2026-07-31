@@ -95,6 +95,15 @@ VS Code and Neovim guests can join the same session simultaneously.
 | `ngrok` | `ngrok` | Requires ngrok CLI and auth token |
 | None | — | Local network / VPN only |
 
+With `bore`, share the port from the `listening at bore.pub:<port>` line — not `7835`, which is bore's control port and never carries tunnel traffic.
+
+## Settings
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `openPair.connectTimeout` | `15` | Seconds to wait for the connection to the host to be established. Raise this on slow tunnels. |
+| `openPair.approvalTimeout` | `60` | Seconds to wait for the host to accept the join request, once connected. |
+
 ## Limitations
 
 - **Neovim compatibility**: requires live-share.nvim with protocol version 3+
@@ -104,9 +113,13 @@ VS Code and Neovim guests can join the same session simultaneously.
 
 ## Troubleshooting
 
-**Connection times out or never connects**
+**"Could not establish a connection"**
+- Nothing completed a handshake at that address — usually the wrong host or port rather than a host that stopped sharing. Re-check the URL against what the host is actually sharing
 - Check that the port is open in any firewall on the host machine
 - If using a tunnel, wait a few seconds for it to establish before sharing the URL
+
+**"Connected, but the host never accepted"**
+- The address is reachable, so the host is running. They either declined the request or never saw the dialog — raise `openPair.approvalTimeout` if they need longer
 - Try a different tunnel provider — serveo and localhost.run can be flaky
 
 **"No encryption key found in URL"**
